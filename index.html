@@ -30,7 +30,7 @@
   table{border-collapse:collapse;width:100%}
   th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
   th{color:var(--muted);font-weight:600;font-size:12px}
-  .cal{display:grid;grid-template-columns:70px repeat(5,1fr);gap:2px}
+  .cal{display:grid;grid-template-columns:70px repeat(5,1fr);gap:2px;user-select:none;-webkit-user-select:none;touch-action:pan-y}
   .cal .hd{font-weight:600;font-size:12px;padding:6px;text-align:center;background:#eceef1;border-radius:3px}
   .cal .hd.today{background:var(--accent);color:#fff}
   .cal .hd.closed{background:#e2e4e7;color:#8a8f96}
@@ -43,6 +43,7 @@
   .cell.own.pre{background:var(--pre-bg);border-color:var(--pre);
             background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.05) 0 5px,transparent 5px 10px)}
   .cell.cont{opacity:.7}
+  .cell.sel{background:#dbe7f1;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
   .tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;border:1px solid}
   .t-GODKENDT{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
   .t-AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--pend);color:var(--pend)}
@@ -325,12 +326,64 @@ async function renderCal(){
       <span><i style="background:var(--pre-bg);border-color:var(--pre)"></i>Prebooking (skraveret)</span>
       <span><i style="background:var(--busy)"></i>Optaget af anden vognmand</span>
       <span><i style="background:#f0f0f0"></i>Lukket / passeret</span>
+      <span>Klik på et ledigt slot, eller træk hen over flere i samme dag for at booke dem samlet.</span>
     </div>
   </div>`;
   $('wk-prev').onclick = () => { S.weekStart=addDays(S.weekStart,-7); renderCal(); };
   $('wk-next').onclick = () => { S.weekStart=addDays(S.weekStart,7);  renderCal(); };
   $('wk-today').onclick = () => { S.weekStart=monday(new Date());     renderCal(); };
-  el.querySelectorAll('.cell[data-d]').forEach(c => c.onclick = () => bookingModal(c.dataset.d,c.dataset.t));
+  enableRangeSelect(el, slots);
+}
+
+// Klik og træk hen over flere slots i samme dag. Markeringen stopper ved
+// første optagne eller lukkede slot og ved max_slots_per_booking.
+function enableRangeSelect(el, slots){
+  const cells = [...el.querySelectorAll('.cell[data-d]')];
+  const byKey = new Map(cells.map(c => [c.dataset.d+'#'+c.dataset.t, c]));
+  const idx = t => slots.indexOf(t);
+  const freeAt = (ds,i) => byKey.get(ds+'#'+slots[i]) || null;
+  let anchor = null, ds = null, from = 0, to = 0, dragging = false;
+
+  const paint = () => {
+    cells.forEach(c => c.classList.remove('sel'));
+    if(!dragging) return;
+    for(let i=from;i<=to;i++) freeAt(ds,i)?.classList.add('sel');
+  };
+  const extend = target => {
+    if(!dragging || !target || target.dataset.d !== ds) return;
+    const t = idx(target.dataset.t);
+    const max = S.settings.max_slots_per_booking;
+    let a = Math.min(anchor,t), b = Math.max(anchor,t);
+    // klip ved første hul i rækken af ledige slots
+    let lo = anchor, hi = anchor;
+    while(lo-1 >= a && freeAt(ds,lo-1)) lo--;
+    while(hi+1 <= b && freeAt(ds,hi+1)) hi++;
+    if(hi-lo+1 > max){ t >= anchor ? hi = lo + max - 1 : lo = hi - max + 1; }
+    from = lo; to = hi; paint();
+  };
+  const cellFrom = ev => {
+    const p = ev.touches ? ev.touches[0] : ev;
+    const n = document.elementFromPoint(p.clientX, p.clientY);
+    return n && n.classList.contains('cell') && n.dataset.d ? n : null;
+  };
+
+  cells.forEach(c => c.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    dragging = true; ds = c.dataset.d; anchor = idx(c.dataset.t); from = to = anchor;
+    paint();
+  }));
+  el.addEventListener('pointermove', ev => { if(dragging) extend(cellFrom(ev)); });
+  // Én global lytter pr. kalendertegning; den forrige fjernes, så træk
+  // kan gentages uden at der hobes lyttere op.
+  if(window.__hkoedDragUp) window.removeEventListener('pointerup', window.__hkoedDragUp);
+  window.__hkoedDragUp = () => {
+    if(!dragging) return;
+    dragging = false;
+    const start = slots[from], count = to - from + 1;
+    cells.forEach(c => c.classList.remove('sel'));
+    bookingModal(ds, start, null, count);
+  };
+  window.addEventListener('pointerup', window.__hkoedDragUp);
 }
 
 function isoWeek(d){
@@ -341,7 +394,7 @@ function isoWeek(d){
 }
 
 // ---------- BOOKINGFORMULAR (ny + admin-redigering) ----------
-async function bookingModal(ds, t, existing){
+async function bookingModal(ds, t, existing, preset){
   const slots = slotList();
   const [dayRows, dayLoad] = await Promise.all([
     loadCalendar(ds,ds),
@@ -390,7 +443,9 @@ async function bookingModal(ds, t, existing){
     $('f-cap').textContent = `Maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
     $('f-animals').max = n;
   };
-  $('f-slots').onchange = cap; cap();
+  $('f-slots').onchange = cap;
+  if(preset && preset <= maxSlots) $('f-slots').value = String(preset);
+  cap();
   if(existing){
     $('f-animals').value = existing.animal_count;
     $('f-type').value = existing.type;
