@@ -42,7 +42,9 @@
   .cell.own.AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--pend);cursor:default}
   .cell.own.pre{background:var(--pre-bg);border-color:var(--pre);
             background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.05) 0 5px,transparent 5px 10px)}
-  .cell.cont{opacity:.7}
+  .cell.cont{border-top-style:dashed}
+  .cell.more{color:var(--muted);font-style:italic;font-size:10px}
+  .cell.own.GODKENDT,.cell.own.AFVENTER_GODKENDELSE,.cell.own.pre,.cell.busy{border-left-width:4px}
   .cell.sel{background:#dbe7f1;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
   .tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;border:1px solid}
   .t-GODKENDT{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
@@ -298,11 +300,18 @@ async function renderCal(){
       const ds = fmt(addDays(S.weekStart,i)), b = at(ds,t), past = ds < today;
       if(b){
         const first = hhmm(b.start_time)===t;
+        const n = b.slot_count;
+        const pos = (toMin(t)-toMin(hhmm(b.start_time)))/S.settings.slot_minutes + 1;
+        const span = `${hhmm(b.start_time)}–${hhmm(b.end_time)}`;
+        const title = n>1 ? `${span} · ${n} slots` : span;
         if(b.is_own){
-          grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}">
-            ${first?`<b>${esc(b.carrier_label)}</b><br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer)':''}`:'&nbsp;'}</div>`;
+          grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}" title="${title}">
+            ${first
+              ? `<b>${esc(b.carrier_label)}</b>${n>1?` <span style="font-weight:400">(${n} slots, ${span})</span>`:''}<br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer)':''}`
+              : `<span class="more">↳ ${esc(b.carrier_label)}, ${pos} af ${n}</span>`}</div>`;
         } else {
-          grid += `<div class="cell busy ${first?'':'cont'}">${first?'Optaget':'&nbsp;'}</div>`;
+          grid += `<div class="cell busy ${first?'':'cont'}" title="${title}">
+            ${first ? `Optaget${n>1?` (${n} slots, ${span})`:''}` : `<span class="more">↳ optaget, ${pos} af ${n}</span>`}</div>`;
         }
       } else if(past || !isOpenDay(ds)){
         grid += `<div class="cell disabled"></div>`;
