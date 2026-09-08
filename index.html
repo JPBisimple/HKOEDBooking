@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dyremodtagelse – Booking</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#fff; --line:#d8dbe0; --ink:#1c2024; --muted:#6b7280;
+    --ok:#1f7a4d; --ok-bg:#dff2e6; --pend:#8a6100; --pend-bg:#fdf0cf;
+    --pre:#1f4f7a; --pre-bg:#dceaf6; --bad:#a3241c; --busy:#e9ebee;
+    --accent:#1f4f7a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--accent);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  nav button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:6px}
+  nav button.active{background:#fff;color:var(--accent);font-weight:600}
+  .spacer{flex:1}
+  main{padding:16px;max-width:1280px;margin:0 auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;margin-bottom:16px}
+  h2{font-size:15px;margin:0 0 12px}
+  button.btn{background:var(--accent);color:#fff;border:0;padding:8px 14px;border-radius:4px;cursor:pointer}
+  button.btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  button.btn.danger{background:var(--bad)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input,select,textarea{font:inherit;padding:7px 8px;border:1px solid var(--line);border-radius:4px;width:100%;background:#fff}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px}
+  table{border-collapse:collapse;width:100%}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
+  th{color:var(--muted);font-weight:600;font-size:12px}
+  .cal{display:grid;grid-template-columns:70px repeat(5,1fr);gap:2px}
+  .cal .hd{font-weight:600;font-size:12px;padding:6px;text-align:center;background:#eceef1;border-radius:3px}
+  .cal .hd.today{background:var(--accent);color:#fff}
+  .cal .hd.closed{background:#e2e4e7;color:#8a8f96}
+  .cal .tm{font-size:12px;color:var(--muted);padding:4px 6px;text-align:right}
+  .cell{min-height:34px;border:1px solid var(--line);border-radius:3px;background:#fff;padding:3px 5px;font-size:11px;cursor:pointer;overflow:hidden}
+  .cell.disabled{background:#f0f0f0;cursor:not-allowed;color:#aaa}
+  .cell.busy{background:var(--busy);border-color:#c3c7cc;color:#6b7280;cursor:default}
+  .cell.own.GODKENDT{background:var(--ok-bg);border-color:var(--ok);cursor:default}
+  .cell.own.AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--pend);cursor:default}
+  .cell.own.pre{background:var(--pre-bg);border-color:var(--pre);
+            background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.05) 0 5px,transparent 5px 10px)}
+  .cell.cont{opacity:.7}
+  .tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;border:1px solid}
+  .t-GODKENDT{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+  .t-AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--pend);color:var(--pend)}
+  .t-AFVIST,.t-ANNULLERET{background:#eee;border-color:#bbb;color:#666}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+  .legend i{display:inline-block;width:12px;height:12px;border:1px solid var(--line);vertical-align:-2px;margin-right:4px}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+  .modal{background:#fff;border-radius:6px;padding:20px;width:100%;max-width:460px;max-height:90vh;overflow:auto}
+  .err{background:#fbe6e4;border:1px solid var(--bad);color:var(--bad);padding:8px 10px;border-radius:4px;margin:10px 0;font-size:13px;white-space:pre-wrap}
+  .kpi{display:flex;gap:12px;flex-wrap:wrap}
+  .kpi div{flex:1;min-width:120px;background:#f7f8fa;border:1px solid var(--line);border-radius:5px;padding:10px}
+  .kpi b{display:block;font-size:22px}
+  .kpi span{font-size:12px;color:var(--muted)}
+  .row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+  .row>div{flex:1;min-width:130px}
+  .hint{font-size:12px;color:var(--muted);margin-top:4px}
+  .hide{display:none}
+  #login{max-width:360px;margin:80px auto}
+</style>
+</head>
+<body>
+
+<div id="login" class="panel">
+  <h2>Log ind – Dyremodtagelse</h2>
+  <label>E-mail</label><input id="li-email" type="email" autocomplete="username">
+  <label>Adgangskode</label><input id="li-pass" type="password" autocomplete="current-password">
+  <div id="li-err" class="err hide"></div>
+  <p><button class="btn" id="li-btn" style="width:100%">Log ind</button></p>
+</div>
+
+<div id="app" class="hide">
+  <header>
+    <h1>Dyremodtagelse</h1>
+    <nav>
+      <button data-view="dash" class="active">Dashboard</button>
+      <button data-view="cal">Kalender</button>
+      <button data-view="list">Bookinger</button>
+      <button data-view="admin" id="nav-admin" class="hide">Administration</button>
+    </nav>
+    <div class="spacer"></div>
+    <span id="whoami" style="font-size:12px"></span>
+    <button class="btn sec" id="logout">Log ud</button>
+  </header>
+  <main>
+    <div id="v-dash"></div>
+    <div id="v-cal" class="hide"></div>
+    <div id="v-list" class="hide"></div>
+    <div id="v-admin" class="hide"></div>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+
+<script src="config.js"></script>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const sb = createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY);
+
+const S = { profile:null, settings:null, carriers:[], farmers:[], closed:new Set(),
+            weekStart:null, cal:[], view:'dash' };
+const DAYS = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag'];
+const isAdmin = () => S.profile?.role === 'admin';
+const $ = id => document.getElementById(id);
+
+// ---------- dato (lokal tid, aldrig toISOString) ----------
+const pad = n => String(n).padStart(2,'0');
+const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parse = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+const monday = d => { const x=new Date(d); return addDays(x,-((x.getDay()+6)%7)); };
+const dk = s => { const d=parse(s); return `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`; };
+const hhmm = t => (t||'').slice(0,5);
+const todayStr = () => fmt(new Date());
+const toMin = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+const endOf = (t,mins) => { const m=toMin(t)+mins; return `${pad(Math.floor(m/60))}:${pad(m%60)}`; };
+
+function slotList(){
+  const [oh,om]=S.settings.opening_time.split(':').map(Number);
+  const [ch,cm]=S.settings.closing_time.split(':').map(Number);
+  const step=S.settings.slot_minutes, out=[];
+  for(let m=oh*60+om; m+step<=ch*60+cm; m+=step) out.push(`${pad(Math.floor(m/60))}:${pad(m%60)}`);
+  return out;
+}
+const isOpenDay = ds => { const d=parse(ds); return d.getDay()>=1 && d.getDay()<=5 && !S.closed.has(ds); };
+
+function msg(e){
+  if(!e) return '';
+  if(e.code === '23P01') return 'Et eller flere af de valgte slots er allerede optaget. Opdatér kalenderen og prøv igen.';
+  if(e.code === '42501' || (e.message||'').includes('row-level security'))
+    return 'Du har ikke rettigheder til denne handling.';
+  return e.message || String(e);
+}
+
+// ---------- login ----------
+$('li-btn').onclick = async () => {
+  $('li-err').classList.add('hide'); $('li-btn').disabled = true;
+  const { error } = await sb.auth.signInWithPassword({
+    email:$('li-email').value.trim(), password:$('li-pass').value });
+  $('li-btn').disabled = false;
+  if(error){ $('li-err').textContent='Login mislykkedes: '+error.message; $('li-err').classList.remove('hide'); }
+};
+$('li-pass').addEventListener('keydown', e => { if(e.key==='Enter') $('li-btn').click(); });
+$('logout').onclick = () => sb.auth.signOut();
+
+sb.auth.onAuthStateChange((_e,session) => { session ? start(session) : showLogin(); });
+sb.auth.getSession().then(({data}) => { data.session ? start(data.session) : showLogin(); });
+function showLogin(){ $('login').classList.remove('hide'); $('app').classList.add('hide'); }
+
+async function start(session){
+  const { data:prof } = await sb.from('profiles')
+    .select('id,role,carrier_id,full_name').eq('id',session.user.id).maybeSingle();
+  if(!prof){
+    $('li-err').textContent='Din bruger har ingen profil i systemet. Kontakt administrator.';
+    $('li-err').classList.remove('hide'); await sb.auth.signOut(); return;
+  }
+  S.profile = prof;
+  $('login').classList.add('hide'); $('app').classList.remove('hide');
+  $('whoami').textContent = `${session.user.email} (${isAdmin()?'Administrator':'Vognmand'})`;
+  $('nav-admin').classList.toggle('hide', !isAdmin());
+  await loadMaster();
+  S.weekStart = monday(new Date());
+  setView('dash');
+}
+
+async function loadMaster(){
+  const [set,car,far,cls] = await Promise.all([
+    sb.from('settings').select('*').single(),
+    sb.from('carriers').select('*').order('name'),
+    sb.from('farmers').select('*').eq('active',true).order('name'),
+    sb.from('closed_days').select('*').order('day')
+  ]);
+  S.settings = set.data; S.carriers = car.data||[]; S.farmers = far.data||[];
+  S.closedRows = cls.data||[];
+  S.closed = new Set(S.closedRows.map(c=>c.day));
+}
+
+// Maskeret kalendervisning: fremmede bookinger kommer tilbage som "Optaget".
+async function loadCalendar(from,to){
+  const { data,error } = await sb.from('v_calendar').select('*')
+    .gte('booking_date',from).lte('booking_date',to)
+    .order('booking_date').order('start_time');
+  if(error){ console.error(error); return []; }
+  return data;
+}
+
+// ---------- navigation ----------
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => setView(b.dataset.view));
+function setView(v){
+  S.view = v;
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view===v));
+  ['dash','cal','list','admin'].forEach(x => $('v-'+x).classList.toggle('hide', x!==v));
+  ({dash:renderDash, cal:renderCal, list:renderList, admin:renderAdmin})[v]();
+}
+
+// ---------- DASHBOARD ----------
+async function renderDash(){
+  const el = $('v-dash');
+  el.innerHTML = '<div class="panel">Indlæser…</div>';
+  const today = todayStr(), end = fmt(addDays(new Date(),13));
+  const [rows, load] = await Promise.all([
+    loadCalendar(today,today),
+    sb.from('v_daily_load').select('*').gte('booking_date',today).lte('booking_date',end)
+  ]);
+  const daily = Object.fromEntries((load.data||[]).map(r=>[r.booking_date,r]));
+  const max = S.settings.max_animals_per_day;
+  // Antal dyr er maskeret for fremmede bookinger, så dagstotalen tages fra
+  // det aggregerede view i stedet for at summere rækkerne.
+  const td = daily[today];
+  const todayTotal = td ? td.animals_approved + td.animals_pending : 0;
+
+  const days = [];
+  for(let i=0;i<14;i++){
+    const ds = fmt(addDays(new Date(),i)), d = daily[ds];
+    days.push({ ds, open:isOpenDay(ds),
+                appr:d?d.animals_approved:0, pend:d?d.animals_pending:0 });
+  }
+  const peak = Math.max(max, ...days.map(d=>d.appr+d.pend)) * 1.12;
+  const W=1080,H=260,PADL=46,PADB=42,PADT=12;
+  const bw=(W-PADL-10)/14, y=v=>PADT+(H-PADT-PADB)*(1-v/peak);
+  const bars = days.map((d,i)=>{
+    const x=PADL+i*bw+4, w=bw-8, tot=d.appr+d.pend;
+    if(!d.open) return `<rect x="${x}" y="${PADT}" width="${w}" height="${H-PADT-PADB}" fill="#f0f0f0"/>`;
+    const over = tot>max;
+    return `<rect x="${x}" y="${y(d.appr)}" width="${w}" height="${Math.max(0,H-PADB-y(d.appr))}" fill="${over?'#a3241c':'#1f7a4d'}"/>
+      <rect x="${x}" y="${y(tot)}" width="${w}" height="${Math.max(0,y(d.appr)-y(tot))}" fill="${over?'#d78a84':'#7fb79a'}"/>
+      ${tot?`<text x="${x+w/2}" y="${y(tot)-4}" font-size="11" text-anchor="middle">${tot}</text>`:''}`;
+  }).join('');
+  const labels = days.map((d,i)=>{
+    const p=parse(d.ds);
+    return `<text x="${PADL+i*bw+bw/2}" y="${H-PADB+16}" font-size="10" text-anchor="middle" fill="#6b7280">${pad(p.getDate())}/${pad(p.getMonth()+1)}</text>
+            <text x="${PADL+i*bw+bw/2}" y="${H-PADB+28}" font-size="9" text-anchor="middle" fill="#9aa0a6">${['søn','man','tir','ons','tor','fre','lør'][p.getDay()]}</text>`;
+  }).join('');
+
+  el.innerHTML = `
+  <div class="panel">
+    <h2>I dag – ${dk(today)}</h2>
+    <div class="kpi">
+      <div><b>${todayTotal}</b><span>dyr i alt</span></div>
+      <div><b>${rows.length}</b><span>leverancer</span></div>
+      <div><b>${rows.length?hhmm(rows[0].start_time):'–'}</b><span>første ankomst</span></div>
+      <div><b>${rows.length?hhmm(rows[rows.length-1].end_time):'–'}</b><span>sidste afgang</span></div>
+      <div><b>${Math.max(0,max-todayTotal)}</b><span>ledig kapacitet af ${max}</span></div>
+    </div>
+    ${rows.length?`<table style="margin-top:14px"><tr><th>Tid</th><th>Vognmand</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th></tr>
+      ${rows.map(r=>`<tr>
+        <td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
+        <td>${esc(r.carrier_label)}</td><td>${esc(r.farmer_label||'')}</td>
+        <td>${r.animal_count ?? '–'}</td><td>${r.type==='PREBOOKING'?'Prebooking':'Booking'}</td>
+        <td><span class="tag t-${r.status}">${statusTxt(r.status)}</span></td></tr>`).join('')}
+      </table>`:'<p style="color:var(--muted)">Ingen leverancer registreret i dag.</p>'}
+  </div>
+
+  <div class="panel">
+    <h2>14 dage frem – antal dyr pr. dag</h2>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+      <line x1="${PADL}" y1="${H-PADB}" x2="${W-6}" y2="${H-PADB}" stroke="#d8dbe0"/>
+      <line x1="${PADL}" y1="${y(max)}" x2="${W-6}" y2="${y(max)}" stroke="#a3241c" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="${PADL+4}" y="${y(max)-5}" font-size="11" fill="#a3241c">Maks. ${max} dyr/dag</text>
+      <text x="6" y="${y(max)+4}" font-size="10" fill="#6b7280">${max}</text>
+      <text x="6" y="${H-PADB+4}" font-size="10" fill="#6b7280">0</text>
+      ${bars}${labels}
+    </svg>
+    <div class="legend">
+      <span><i style="background:#1f7a4d"></i>Godkendt</span>
+      <span><i style="background:#7fb79a"></i>Afventer godkendelse</span>
+      <span><i style="background:#a3241c"></i>Over dagsloft</span>
+      <span><i style="background:#f0f0f0"></i>Lukket (weekend/helligdag)</span>
+    </div>
+  </div>`;
+}
+
+// ---------- KALENDER ----------
+async function renderCal(){
+  const el = $('v-cal');
+  const from = fmt(S.weekStart), to = fmt(addDays(S.weekStart,4));
+  el.innerHTML = '<div class="panel">Indlæser…</div>';
+  S.cal = await loadCalendar(from,to);
+  const slots = slotList(), today = todayStr();
+  const at = (ds,t) => S.cal.find(b => b.booking_date===ds
+      && toMin(hhmm(b.start_time))<=toMin(t) && toMin(hhmm(b.end_time))>toMin(t));
+
+  let grid = '<div class="cal"><div class="hd"></div>';
+  for(let i=0;i<5;i++){
+    const ds = fmt(addDays(S.weekStart,i));
+    const cl = S.closedRows.find(c=>c.day===ds);
+    grid += `<div class="hd ${ds===today?'today':''} ${cl?'closed':''}">${DAYS[i]}<br>${dk(ds)}${cl?'<br>'+esc(cl.reason||'Lukket'):''}</div>`;
+  }
+  for(const t of slots){
+    grid += `<div class="tm">${t}</div>`;
+    for(let i=0;i<5;i++){
+      const ds = fmt(addDays(S.weekStart,i)), b = at(ds,t), past = ds < today;
+      if(b){
+        const first = hhmm(b.start_time)===t;
+        if(b.is_own){
+          grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}">
+            ${first?`<b>${esc(b.carrier_label)}</b><br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer)':''}`:'&nbsp;'}</div>`;
+        } else {
+          grid += `<div class="cell busy ${first?'':'cont'}">${first?'Optaget':'&nbsp;'}</div>`;
+        }
+      } else if(past || !isOpenDay(ds)){
+        grid += `<div class="cell disabled"></div>`;
+      } else {
+        grid += `<div class="cell" data-d="${ds}" data-t="${t}">+</div>`;
+      }
+    }
+  }
+  grid += '</div>';
+
+  el.innerHTML = `<div class="panel">
+    <div class="row" style="margin-bottom:12px">
+      <div style="flex:0"><button class="btn sec" id="wk-prev">← Forrige</button></div>
+      <div style="flex:0"><button class="btn sec" id="wk-today">I dag</button></div>
+      <div style="flex:0"><button class="btn sec" id="wk-next">Næste →</button></div>
+      <div style="flex:0;color:var(--muted);align-self:center">Uge ${isoWeek(S.weekStart)} · ${dk(from)} – ${dk(to)}</div>
+    </div>${grid}
+    <div class="legend">
+      <span><i style="background:var(--ok-bg);border-color:var(--ok)"></i>Egen godkendt booking</span>
+      <span><i style="background:var(--pend-bg);border-color:var(--pend)"></i>Egen afventende</span>
+      <span><i style="background:var(--pre-bg);border-color:var(--pre)"></i>Prebooking (skraveret)</span>
+      <span><i style="background:var(--busy)"></i>Optaget af anden vognmand</span>
+      <span><i style="background:#f0f0f0"></i>Lukket / passeret</span>
+    </div>
+  </div>`;
+  $('wk-prev').onclick = () => { S.weekStart=addDays(S.weekStart,-7); renderCal(); };
+  $('wk-next').onclick = () => { S.weekStart=addDays(S.weekStart,7);  renderCal(); };
+  $('wk-today').onclick = () => { S.weekStart=monday(new Date());     renderCal(); };
+  el.querySelectorAll('.cell[data-d]').forEach(c => c.onclick = () => bookingModal(c.dataset.d,c.dataset.t));
+}
+
+function isoWeek(d){
+  const x=new Date(d); x.setHours(0,0,0,0);
+  x.setDate(x.getDate()+3-((x.getDay()+6)%7));
+  const first=new Date(x.getFullYear(),0,4);
+  return 1+Math.round(((x-first)/86400000-3+((first.getDay()+6)%7))/7);
+}
+
+// ---------- BOOKINGFORMULAR (ny + admin-redigering) ----------
+async function bookingModal(ds, t, existing){
+  const slots = slotList();
+  const [dayRows, dayLoad] = await Promise.all([
+    loadCalendar(ds,ds),
+    sb.from('v_daily_load').select('*').eq('booking_date',ds).maybeSingle()
+  ]);
+  const others = dayRows.filter(r => !existing || r.id !== existing.id);
+  const dl = dayLoad.data;
+  const bookedToday = (dl ? dl.animals_approved + dl.animals_pending : 0)
+                      - (existing ? existing.animal_count : 0);
+  const maxSlots = Math.min(freeSlotsFrom(t, others, slots, existing), S.settings.max_slots_per_booking);
+  const perSlot = S.settings.max_animals_per_slot;
+  const myCarrier = isAdmin() ? null : S.profile.carrier_id;
+  const carriers = S.carriers.filter(c => c.active || c.id===existing?.carrier_id);
+
+  $('modal-root').innerHTML = `<div class="overlay"><div class="modal">
+    <h2>${existing ? 'Ret booking' : (isAdmin()?'Ny booking':'Ny bookingforespørgsel')}</h2>
+    <div style="color:var(--muted);font-size:13px">${dk(ds)} kl. ${t} · ${bookedToday} af ${S.settings.max_animals_per_day} dyr booket denne dag</div>
+    ${isAdmin() && existing ? `<label>Dato</label><input type="date" id="f-date" value="${ds}">` : ''}
+    <label>Vognmand</label>
+    <select id="f-car" ${myCarrier?'disabled':''}>
+      ${carriers.map(c=>`<option value="${c.id}" ${c.id===(existing?.carrier_id||myCarrier)?'selected':''}>${esc(c.name)}</option>`).join('')}
+    </select>
+    <label>Landmand</label>
+    <select id="f-far">${S.farmers.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select>
+    <div class="row">
+      <div><label>Antal slots à ${S.settings.slot_minutes} min.</label>
+        <select id="f-slots">${Array.from({length:maxSlots},(_,i)=>
+          `<option value="${i+1}">${i+1} (til ${endOf(t,(i+1)*S.settings.slot_minutes)})</option>`).join('')}</select></div>
+      <div><label>Antal dyr</label><input id="f-animals" type="number" min="1" step="1"></div>
+    </div>
+    <div class="hint" id="f-cap"></div>
+    <label>Type</label>
+    <select id="f-type">
+      <option value="BOOKING">Booking (bekræftet)</option>
+      <option value="PREBOOKING">Prebooking (foreløbig)</option></select>
+    <label>Bemærkning</label><textarea id="f-note" rows="2"></textarea>
+    <div id="f-err" class="err hide"></div>
+    <p style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn" id="f-save">${existing?'Gem ændringer':(isAdmin()?'Opret booking':'Send forespørgsel')}</button>
+      <button class="btn sec" id="f-cancel">Fortryd</button>
+    </p>
+  </div></div>`;
+
+  const cap = () => {
+    const n = parseInt($('f-slots').value,10)*perSlot;
+    $('f-cap').textContent = `Maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
+    $('f-animals').max = n;
+  };
+  $('f-slots').onchange = cap; cap();
+  if(existing){
+    $('f-animals').value = existing.animal_count;
+    $('f-type').value = existing.type;
+    $('f-note').value = existing.note || '';
+  }
+  $('f-cancel').onclick = () => $('modal-root').innerHTML = '';
+  $('f-save').onclick = async () => {
+    const animals = parseInt($('f-animals').value,10);
+    const nSlots  = parseInt($('f-slots').value,10);
+    if(!(animals>0)) return showErr('Angiv antal dyr.');
+    if(animals > nSlots*perSlot)
+      return showErr(`${animals} dyr kræver mindst ${Math.ceil(animals/perSlot)} slots (maks ${perSlot} dyr pr. slot).`);
+    if(!$('f-far').value) return showErr('Vælg landmand.');
+    const row = {
+      booking_date: $('f-date') ? $('f-date').value : ds,
+      start_time: t+':00', slot_count: nSlots,
+      carrier_id: myCarrier || $('f-car').value,
+      farmer_id: $('f-far').value,
+      animal_count: animals, type: $('f-type').value,
+      note: $('f-note').value.trim() || null
+    };
+    $('f-save').disabled = true;
+    let error;
+    if(existing){
+      ({ error } = await sb.from('bookings').update(row).eq('id', existing.id));
+    } else {
+      row.status = isAdmin() ? 'GODKENDT' : 'AFVENTER_GODKENDELSE';
+      row.created_by = (await sb.auth.getUser()).data.user.id;
+      ({ error } = await sb.from('bookings').insert(row));
+    }
+    $('f-save').disabled = false;
+    if(error) return showErr(msg(error));
+    $('modal-root').innerHTML = '';
+    setView(S.view);
+  };
+  function showErr(m){ $('f-err').textContent=m; $('f-err').classList.remove('hide'); }
+}
+
+function freeSlotsFrom(t, rows, slots, existing){
+  const idx = slots.indexOf(t); let n=0;
+  for(let i=idx;i<slots.length;i++){
+    const s = slots[i];
+    const taken = rows.some(b => toMin(hhmm(b.start_time))<=toMin(s) && toMin(hhmm(b.end_time))>toMin(s));
+    if(taken) break;
+    n++;
+  }
+  return Math.max(1,n);
+}
+
+// ---------- BOOKINGLISTE ----------
+async function renderList(){
+  const el = $('v-list');
+  const from = todayStr(), to = fmt(addDays(new Date(),60));
+  const { data,error } = await sb.from('bookings')
+    .select('*, carriers(name), farmers(name)')
+    .gte('booking_date',from).lte('booking_date',to)
+    .order('booking_date').order('start_time');
+  if(error){ el.innerHTML = `<div class="panel err">${msg(error)}</div>`; return; }
+  const rows = data||[];
+  el.innerHTML = `<div class="panel"><h2>${isAdmin()?'Alle bookinger':'Mine bookinger'} (60 dage frem)</h2>
+    <table><tr><th>Dato</th><th>Tid</th><th>Vognmand</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th></th></tr>
+    ${rows.map(r=>`<tr>
+      <td>${dk(r.booking_date)}</td><td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
+      <td>${esc(r.carriers?.name)}</td><td>${esc(r.farmers?.name)}</td>
+      <td>${r.animal_count}</td><td>${r.type==='PREBOOKING'?'Prebooking':'Booking'}</td>
+      <td><span class="tag t-${r.status}">${statusTxt(r.status)}</span></td>
+      <td style="white-space:nowrap">
+        ${isAdmin()?`<button class="btn sec" data-edit="${r.id}">Ret</button>
+                     <button class="btn danger" data-del="${r.id}">Slet</button>`:''}
+        ${['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
+          ? `<button class="btn sec" data-cancel="${r.id}">Annullér</button>`:''}
+      </td></tr>`).join('')}
+    </table>${rows.length?'':'<p style="color:var(--muted)">Ingen bookinger.</p>'}</div>`;
+  wireRowActions(el, rows, renderList);
+}
+
+function wireRowActions(el, rows, refresh){
+  el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
+    if(!confirm('Annullér bookingen?')) return;
+    const { error } = await sb.from('bookings').update({status:'ANNULLERET'}).eq('id',b.dataset.cancel);
+    error ? alert(msg(error)) : refresh();
+  });
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if(!confirm('Slet bookingen permanent? Historikken går tabt – overvej annullering i stedet.')) return;
+    const { error } = await sb.from('bookings').delete().eq('id',b.dataset.del);
+    error ? alert(msg(error)) : refresh();
+  });
+  el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+    const r = rows.find(x=>x.id===b.dataset.edit);
+    bookingModal(r.booking_date, hhmm(r.start_time), r);
+  });
+}
+
+// ---------- ADMINISTRATION ----------
+async function renderAdmin(){
+  const el = $('v-admin');
+  const { data } = await sb.from('bookings').select('*, carriers(name), farmers(name)')
+    .eq('status','AFVENTER_GODKENDELSE').order('booking_date').order('start_time');
+  const pend = data||[];
+  const yr = new Date().getFullYear();
+  el.innerHTML = `
+  <div class="panel">
+    <h2>Forespørgsler til godkendelse (${pend.length})</h2>
+    ${pend.length?`<table><tr><th>Dato</th><th>Tid</th><th>Vognmand</th><th>Landmand</th><th>Dyr</th><th>Type</th><th></th></tr>
+      ${pend.map(r=>`<tr>
+        <td>${dk(r.booking_date)}</td><td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
+        <td>${esc(r.carriers?.name)}</td><td>${esc(r.farmers?.name)}</td>
+        <td>${r.animal_count}</td><td>${r.type==='PREBOOKING'?'Prebooking':'Booking'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn" data-ok="${r.id}">Godkend</button>
+          <button class="btn sec" data-edit="${r.id}">Ret</button>
+          <button class="btn danger" data-no="${r.id}">Afvis</button></td></tr>`).join('')}
+      </table>`:'<p style="color:var(--muted)">Ingen forespørgsler afventer.</p>'}
+  </div>
+
+  <div class="panel">
+    <h2>Lukkedage</h2>
+    <div class="row">
+      <div style="flex:0"><button class="btn" id="hol-gen">Indlæs danske helligdage ${yr}–${yr+1}</button></div>
+      <div style="flex:0;align-self:center;color:var(--muted);font-size:12px">
+        Store bededag indgår ikke (afskaffet fra 2024). 1. maj, grundlovsdag, jule- og nytårsaftensdag er ikke helligdage og skal tilføjes manuelt.</div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div><label>Dato</label><input type="date" id="cd-date"></div>
+      <div><label>Årsag</label><input id="cd-reason" placeholder="Fx ferielukket"></div>
+      <div style="flex:0"><button class="btn sec" id="cd-add">Tilføj</button></div>
+    </div>
+    <table style="margin-top:10px"><tr><th>Dato</th><th>Årsag</th><th></th></tr>
+      ${S.closedRows.map(c=>`<tr><td>${dk(c.day)}</td><td>${esc(c.reason||'')}${c.automatic?' <span style="color:var(--muted)">(auto)</span>':''}</td>
+        <td style="text-align:right"><button class="btn sec" data-cd="${c.day}">Fjern</button></td></tr>`).join('')}
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Kapacitet</h2>
+    <div class="row">
+      <div><label>Maks. dyr pr. dag</label><input type="number" id="st-max" value="${S.settings.max_animals_per_day}"></div>
+      <div><label>Maks. dyr pr. slot</label><input type="number" id="st-slot" value="${S.settings.max_animals_per_slot}"></div>
+      <div><label>Maks. slots pr. booking</label><input type="number" id="st-slots" value="${S.settings.max_slots_per_booking}"></div>
+      <div style="flex:0"><button class="btn" id="st-save">Gem</button></div>
+    </div>
+    <p class="hint">Teoretisk dagsmaksimum med de nuværende værdier:
+      ${slotList().length} slots × ${S.settings.max_animals_per_slot} dyr =
+      <b>${slotList().length*S.settings.max_animals_per_slot} dyr</b>.
+      Dagsloftet på ${S.settings.max_animals_per_day} dyr kan derfor
+      ${slotList().length*S.settings.max_animals_per_slot < S.settings.max_animals_per_day
+        ? 'ikke nås med én modtagelinje.' : 'nås.'}</p>
+    <p class="hint">Vognmænd, landmænd og brugerprofiler oprettes i Supabase Studio
+      (tabellerne <code>carriers</code>, <code>farmers</code>, <code>profiles</code>).</p>
+  </div>`;
+
+  el.querySelectorAll('[data-ok]').forEach(b => b.onclick = async () => {
+    const { error } = await sb.from('bookings').update({status:'GODKENDT'}).eq('id',b.dataset.ok);
+    error ? alert(msg(error)) : renderAdmin();
+  });
+  el.querySelectorAll('[data-no]').forEach(b => b.onclick = async () => {
+    const reason = prompt('Årsag til afvisning:'); if(reason===null) return;
+    const { error } = await sb.from('bookings')
+      .update({status:'AFVIST',rejection_reason:reason}).eq('id',b.dataset.no);
+    error ? alert(msg(error)) : renderAdmin();
+  });
+  el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+    const r = pend.find(x=>x.id===b.dataset.edit);
+    bookingModal(r.booking_date, hhmm(r.start_time), r);
+  });
+  $('hol-gen').onclick = async () => {
+    const { data,error } = await sb.rpc('sync_dk_holidays',{from_year:yr,to_year:yr+1});
+    if(error) return alert(msg(error));
+    alert(`${data} lukkedage indsat.`);
+    await loadMaster(); renderAdmin();
+  };
+  $('cd-add').onclick = async () => {
+    if(!$('cd-date').value) return;
+    const { error } = await sb.from('closed_days')
+      .insert({day:$('cd-date').value, reason:$('cd-reason').value||null, automatic:false});
+    if(error) return alert(msg(error));
+    await loadMaster(); renderAdmin();
+  };
+  el.querySelectorAll('[data-cd]').forEach(b => b.onclick = async () => {
+    const { error } = await sb.from('closed_days').delete().eq('day',b.dataset.cd);
+    if(error) return alert(msg(error));
+    await loadMaster(); renderAdmin();
+  });
+  $('st-save').onclick = async () => {
+    const { error } = await sb.from('settings').update({
+      max_animals_per_day: parseInt($('st-max').value,10),
+      max_animals_per_slot: parseInt($('st-slot').value,10),
+      max_slots_per_booking: parseInt($('st-slots').value,10)
+    }).eq('id',true);
+    if(error) return alert(msg(error));
+    await loadMaster(); renderAdmin();
+  };
+}
+
+// ---------- diverse ----------
+function statusTxt(s){
+  return {GODKENDT:'Godkendt',AFVENTER_GODKENDELSE:'Afventer',AFVIST:'Afvist',ANNULLERET:'Annulleret'}[s]||s;
+}
+function esc(s){ return (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// Genindlæser den aktive visning hvert 60. sekund, så flere brugere ser
+// hinandens ændringer. (Ingen realtime-abonnement.)
+setInterval(() => { if(S.profile && !document.querySelector('.overlay')) setView(S.view); }, 60000);
+</script>
+</body>
+</html>
