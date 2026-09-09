@@ -3,73 +3,102 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" type="image/png" href="favicon.png">
 <title>Dyremodtagelse – Booking</title>
 <style>
   :root{
-    --bg:#f4f5f7; --panel:#fff; --line:#d8dbe0; --ink:#1c2024; --muted:#6b7280;
-    --ok:#1f7a4d; --ok-bg:#dff2e6; --pend:#8a6100; --pend-bg:#fdf0cf;
-    --pre:#1f4f7a; --pre-bg:#dceaf6; --bad:#a3241c; --busy:#e9ebee;
-    --accent:#1f4f7a;
+    /* Officielle farver fra farveskemaet */
+    --green:#006E63;        /* Pantone 562 C */
+    --gold:#85754E;         /* Pantone 871 C - mat guld */
+    --dark:#1A3C34;         /* Pantone 560 C - mørk grøn */
+    --warm:#D6D1CA;         /* Warm Gray 1 C */
+    /* Afledte nuancer (ikke i farveskemaet) - se README */
+    --bg:#14302A;
+    --panel:#21463D;
+    --line:rgba(214,209,202,.18);
+    --ink:var(--warm);
+    --muted:#A9B3AB;
+    --gold-lt:#BDAF8E;      /* lysere guld, læsbar som tekst på mørk grøn */
+    --danger:#D89A90;       /* signalfarve - findes ikke i farveskemaet */
+    --danger-bg:rgba(140,58,48,.28);
+    --ok-bg:rgba(0,110,99,.30);
+    --pend-bg:rgba(133,117,78,.30);
+    --busy-bg:rgba(214,209,202,.10);
   }
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-  header{background:var(--accent);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  header h1{font-size:16px;margin:0;font-weight:600}
-  nav button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:6px}
-  nav button.active{background:#fff;color:var(--accent);font-weight:600}
+  header{background:var(--dark);border-bottom:1px solid var(--gold);padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:700;color:var(--gold-lt);letter-spacing:.02em}
+  nav button{background:transparent;border:1px solid var(--line);color:var(--warm);padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:6px}
+  nav button:hover{border-color:var(--gold-lt)}
+  nav button.active{background:var(--gold);border-color:var(--gold);color:#fff;font-weight:600}
   .spacer{flex:1}
   main{padding:16px;max-width:1280px;margin:0 auto}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;margin-bottom:16px}
-  h2{font-size:15px;margin:0 0 12px}
-  button.btn{background:var(--accent);color:#fff;border:0;padding:8px 14px;border-radius:4px;cursor:pointer}
-  button.btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
-  button.btn.danger{background:var(--bad)}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  input,select,textarea{font:inherit;padding:7px 8px;border:1px solid var(--line);border-radius:4px;width:100%;background:#fff}
+  h2{font-size:15px;margin:0 0 12px;color:var(--gold-lt)}
+  button.btn{background:var(--gold);color:#fff;border:0;padding:8px 14px;border-radius:4px;cursor:pointer;font-weight:600}
+  button.btn:hover{background:#93835C}
+  button.btn.sec{background:transparent;color:var(--warm);border:1px solid var(--line);font-weight:400}
+  button.btn.sec:hover{border-color:var(--gold-lt)}
+  button.btn.danger{background:#8C3A30;color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  input,select,textarea{font:inherit;padding:7px 8px;border:1px solid var(--line);border-radius:4px;width:100%;
+    background:var(--bg);color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);outline-offset:-1px;border-color:var(--gold)}
+  select option{background:var(--bg);color:var(--ink)}
   label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px}
   table{border-collapse:collapse;width:100%}
   th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
-  th{color:var(--muted);font-weight:600;font-size:12px}
+  th{color:var(--gold-lt);font-weight:600;font-size:12px}
+  code{color:var(--gold-lt)}
   .cal{display:grid;grid-template-columns:70px repeat(5,1fr);gap:2px;user-select:none;-webkit-user-select:none;touch-action:pan-y}
-  .cal .hd{font-weight:600;font-size:12px;padding:6px;text-align:center;background:#eceef1;border-radius:3px}
-  .cal .hd.today{background:var(--accent);color:#fff}
-  .cal .hd.closed{background:#e2e4e7;color:#8a8f96}
+  .cal .hd{font-weight:600;font-size:12px;padding:6px;text-align:center;background:rgba(214,209,202,.08);border-radius:3px;color:var(--warm)}
+  .cal .hd.today{background:var(--gold);color:#fff}
+  .cal .hd.closed{background:rgba(0,0,0,.25);color:var(--muted)}
   .cal .tm{font-size:12px;color:var(--muted);padding:4px 6px;text-align:right}
-  .cell{min-height:34px;border:1px solid var(--line);border-radius:3px;background:#fff;padding:3px 5px;font-size:11px;cursor:pointer;overflow:hidden}
-  .cell.disabled{background:#f0f0f0;cursor:not-allowed;color:#aaa}
-  .cell.busy{background:var(--busy);border-color:#c3c7cc;color:#6b7280;cursor:default}
-  .cell.own.GODKENDT{background:var(--ok-bg);border-color:var(--ok);cursor:default}
-  .cell.own.AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--pend);cursor:default}
-  .cell.own.pre{background:var(--pre-bg);border-color:var(--pre);
-            background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.05) 0 5px,transparent 5px 10px)}
+  .cell{min-height:34px;border:1px solid var(--line);border-radius:3px;background:rgba(214,209,202,.04);
+        padding:3px 5px;font-size:11px;cursor:pointer;overflow:hidden;color:var(--muted)}
+  .cell[data-d]:hover{border-color:var(--gold-lt);background:rgba(133,117,78,.18);color:var(--gold-lt)}
+  .cell.disabled{background:rgba(0,0,0,.22);border-color:transparent;cursor:not-allowed;color:transparent}
+  .cell.busy{background:var(--busy-bg);border-left:4px solid #6E7A72;color:var(--muted);cursor:default}
+  .cell.own{color:var(--ink);cursor:default}
+  .cell.own.GODKENDT{background:var(--ok-bg);border-color:var(--green);border-left:4px solid var(--green)}
+  .cell.own.AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--gold);border-left:4px solid var(--gold-lt)}
+  .cell.own.pre{background-image:repeating-linear-gradient(45deg,rgba(214,209,202,.10) 0 5px,transparent 5px 10px)}
   .cell.cont{border-top-style:dashed}
   .cell.more{color:var(--muted);font-style:italic;font-size:10px}
-  .cell.own.GODKENDT,.cell.own.AFVENTER_GODKENDELSE,.cell.own.pre,.cell.busy{border-left-width:4px}
-  .cell.sel{background:#dbe7f1;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
-  .tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;border:1px solid}
-  .t-GODKENDT{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
-  .t-AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--pend);color:var(--pend)}
-  .t-AFVIST,.t-ANNULLERET{background:#eee;border-color:#bbb;color:#666}
+  .cell.sel{background:rgba(133,117,78,.45);border-color:var(--gold-lt);box-shadow:inset 0 0 0 1px var(--gold-lt);color:#fff}
+  .tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;border:1px solid;color:var(--ink)}
+  .t-GODKENDT{background:var(--ok-bg);border-color:var(--green)}
+  .t-AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--gold-lt)}
+  .t-AFVIST,.t-ANNULLERET{background:rgba(214,209,202,.08);border-color:var(--line);color:var(--muted)}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
   .legend i{display:inline-block;width:12px;height:12px;border:1px solid var(--line);vertical-align:-2px;margin-right:4px}
-  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
-  .modal{background:#fff;border-radius:6px;padding:20px;width:100%;max-width:460px;max-height:90vh;overflow:auto}
-  .err{background:#fbe6e4;border:1px solid var(--bad);color:var(--bad);padding:8px 10px;border-radius:4px;margin:10px 0;font-size:13px;white-space:pre-wrap}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+  .modal{background:var(--panel);border:1px solid var(--gold);border-radius:6px;padding:20px;width:100%;max-width:460px;max-height:90vh;overflow:auto}
+  .err{background:var(--danger-bg);border:1px solid var(--danger);color:var(--danger);padding:8px 10px;border-radius:4px;margin:10px 0;font-size:13px;white-space:pre-wrap}
   .kpi{display:flex;gap:12px;flex-wrap:wrap}
-  .kpi div{flex:1;min-width:120px;background:#f7f8fa;border:1px solid var(--line);border-radius:5px;padding:10px}
-  .kpi b{display:block;font-size:22px}
+  .kpi div{flex:1;min-width:120px;background:rgba(214,209,202,.06);border:1px solid var(--line);border-radius:5px;padding:10px}
+  .kpi b{display:block;font-size:22px;color:var(--gold-lt)}
   .kpi span{font-size:12px;color:var(--muted)}
   .row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
   .row>div{flex:1;min-width:130px}
   .hint{font-size:12px;color:var(--muted);margin-top:4px}
   .hide{display:none}
   #login{max-width:360px;margin:80px auto}
+  #whoami{color:var(--muted)}
+  .logo{height:34px;width:auto;display:block}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand small{display:block;font-size:11px;font-weight:400;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  #login .logo{height:56px;margin:0 auto 14px}
 </style>
 </head>
 <body>
 
 <div id="login" class="panel">
-  <h2>Log ind – Dyremodtagelse</h2>
+  <img src="logo.png" alt="Himmerlandskød" class="logo">
+  <h2 style="text-align:center">Log ind – Dyremodtagelse</h2>
   <label>E-mail</label><input id="li-email" type="email" autocomplete="username">
   <label>Adgangskode</label><input id="li-pass" type="password" autocomplete="current-password">
   <div id="li-err" class="err hide"></div>
@@ -78,7 +107,10 @@
 
 <div id="app" class="hide">
   <header>
-    <h1>Dyremodtagelse</h1>
+    <div class="brand">
+      <img src="logo.png" alt="Himmerlandskød" class="logo">
+      <h1>Dyremodtagelse<small>Himmerlandskød</small></h1>
+    </div>
     <nav>
       <button data-view="dash" class="active">Dashboard</button>
       <button data-view="cal">Kalender</button>
@@ -228,16 +260,16 @@ async function renderDash(){
   const bw=(W-PADL-10)/14, y=v=>PADT+(H-PADT-PADB)*(1-v/peak);
   const bars = days.map((d,i)=>{
     const x=PADL+i*bw+4, w=bw-8, tot=d.appr+d.pend;
-    if(!d.open) return `<rect x="${x}" y="${PADT}" width="${w}" height="${H-PADT-PADB}" fill="#f0f0f0"/>`;
+    if(!d.open) return `<rect x="${x}" y="${PADT}" width="${w}" height="${H-PADT-PADB}" fill="rgba(214,209,202,.05)"/>`;
     const over = tot>max;
-    return `<rect x="${x}" y="${y(d.appr)}" width="${w}" height="${Math.max(0,H-PADB-y(d.appr))}" fill="${over?'#a3241c':'#1f7a4d'}"/>
-      <rect x="${x}" y="${y(tot)}" width="${w}" height="${Math.max(0,y(d.appr)-y(tot))}" fill="${over?'#d78a84':'#7fb79a'}"/>
-      ${tot?`<text x="${x+w/2}" y="${y(tot)-4}" font-size="11" text-anchor="middle">${tot}</text>`:''}`;
+    return `<rect x="${x}" y="${y(d.appr)}" width="${w}" height="${Math.max(0,H-PADB-y(d.appr))}" fill="${over?'#8C3A30':'#006E63'}"/>
+      <rect x="${x}" y="${y(tot)}" width="${w}" height="${Math.max(0,y(d.appr)-y(tot))}" fill="${over?'#B5675C':'#85754E'}"/>
+      ${tot?`<text x="${x+w/2}" y="${y(tot)-4}" font-size="11" text-anchor="middle" fill="#D6D1CA">${tot}</text>`:''}`;
   }).join('');
   const labels = days.map((d,i)=>{
     const p=parse(d.ds);
-    return `<text x="${PADL+i*bw+bw/2}" y="${H-PADB+16}" font-size="10" text-anchor="middle" fill="#6b7280">${pad(p.getDate())}/${pad(p.getMonth()+1)}</text>
-            <text x="${PADL+i*bw+bw/2}" y="${H-PADB+28}" font-size="9" text-anchor="middle" fill="#9aa0a6">${['søn','man','tir','ons','tor','fre','lør'][p.getDay()]}</text>`;
+    return `<text x="${PADL+i*bw+bw/2}" y="${H-PADB+16}" font-size="10" text-anchor="middle" fill="#A9B3AB">${pad(p.getDate())}/${pad(p.getMonth()+1)}</text>
+            <text x="${PADL+i*bw+bw/2}" y="${H-PADB+28}" font-size="9" text-anchor="middle" fill="#7E8C84">${['søn','man','tir','ons','tor','fre','lør'][p.getDay()]}</text>`;
   }).join('');
 
   el.innerHTML = `
@@ -262,18 +294,18 @@ async function renderDash(){
   <div class="panel">
     <h2>14 dage frem – antal dyr pr. dag</h2>
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
-      <line x1="${PADL}" y1="${H-PADB}" x2="${W-6}" y2="${H-PADB}" stroke="#d8dbe0"/>
-      <line x1="${PADL}" y1="${y(max)}" x2="${W-6}" y2="${y(max)}" stroke="#a3241c" stroke-width="1.5" stroke-dasharray="6 4"/>
-      <text x="${PADL+4}" y="${y(max)-5}" font-size="11" fill="#a3241c">Maks. ${max} dyr/dag</text>
-      <text x="6" y="${y(max)+4}" font-size="10" fill="#6b7280">${max}</text>
-      <text x="6" y="${H-PADB+4}" font-size="10" fill="#6b7280">0</text>
+      <line x1="${PADL}" y1="${H-PADB}" x2="${W-6}" y2="${H-PADB}" stroke="rgba(214,209,202,.25)"/>
+      <line x1="${PADL}" y1="${y(max)}" x2="${W-6}" y2="${y(max)}" stroke="#D89A90" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="${PADL+4}" y="${y(max)-5}" font-size="11" fill="#D89A90">Maks. ${max} dyr/dag</text>
+      <text x="6" y="${y(max)+4}" font-size="10" fill="#A9B3AB">${max}</text>
+      <text x="6" y="${H-PADB+4}" font-size="10" fill="#A9B3AB">0</text>
       ${bars}${labels}
     </svg>
     <div class="legend">
-      <span><i style="background:#1f7a4d"></i>Godkendt</span>
-      <span><i style="background:#7fb79a"></i>Afventer godkendelse</span>
-      <span><i style="background:#a3241c"></i>Over dagsloft</span>
-      <span><i style="background:#f0f0f0"></i>Lukket (weekend/helligdag)</span>
+      <span><i style="background:#006E63"></i>Godkendt</span>
+      <span><i style="background:#85754E"></i>Afventer godkendelse</span>
+      <span><i style="background:#8C3A30"></i>Over dagsloft</span>
+      <span><i style="background:rgba(214,209,202,.10)"></i>Lukket (weekend/helligdag)</span>
     </div>
   </div>`;
 }
@@ -330,11 +362,11 @@ async function renderCal(){
       <div style="flex:0;color:var(--muted);align-self:center">Uge ${isoWeek(S.weekStart)} · ${dk(from)} – ${dk(to)}</div>
     </div>${grid}
     <div class="legend">
-      <span><i style="background:var(--ok-bg);border-color:var(--ok)"></i>Egen godkendt booking</span>
-      <span><i style="background:var(--pend-bg);border-color:var(--pend)"></i>Egen afventende</span>
-      <span><i style="background:var(--pre-bg);border-color:var(--pre)"></i>Prebooking (skraveret)</span>
-      <span><i style="background:var(--busy)"></i>Optaget af anden vognmand</span>
-      <span><i style="background:#f0f0f0"></i>Lukket / passeret</span>
+      <span><i style="background:var(--ok-bg);border-color:var(--green)"></i>Egen godkendt booking</span>
+      <span><i style="background:var(--pend-bg);border-color:var(--gold-lt)"></i>Egen afventende</span>
+      <span><i style="background:var(--pend-bg);border-color:var(--gold)"></i>Prebooking (skraveret)</span>
+      <span><i style="background:var(--busy-bg)"></i>Optaget af anden vognmand</span>
+      <span><i style="background:rgba(0,0,0,.22)"></i>Lukket / passeret</span>
       <span>Klik på et ledigt slot, eller træk hen over flere i samme dag for at booke dem samlet.</span>
     </div>
   </div>`;
