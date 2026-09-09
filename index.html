@@ -441,34 +441,27 @@ function isoWeek(d){
 
 // ---------- BOOKINGFORMULAR (ny + admin-redigering) ----------
 async function bookingModal(ds, t, existing, preset){
-  const slots = slotList();
-  const [dayRows, dayLoad] = await Promise.all([
-    loadCalendar(ds,ds),
-    sb.from('v_daily_load').select('*').eq('booking_date',ds).maybeSingle()
-  ]);
-  const others = dayRows.filter(r => !existing || r.id !== existing.id);
-  const dl = dayLoad.data;
-  const bookedToday = (dl ? dl.animals_approved + dl.animals_pending : 0)
-                      - (existing ? existing.animal_count : 0);
-  const maxSlots = Math.min(freeSlotsFrom(t, others, slots, existing), S.settings.max_slots_per_booking);
+  const slots   = slotList();
   const perSlot = S.settings.max_animals_per_slot;
   const myCarrier = isAdmin() ? null : S.profile.carrier_id;
-  const carriers = S.carriers.filter(c => c.active || c.id===existing?.carrier_id);
+  const carriers  = S.carriers.filter(c => c.active || c.id===existing?.carrier_id);
+  const canMove   = isAdmin() && !!existing;   // kun admin må flytte en booking
+  let day = ds, others = [], booked = 0;
 
   $('modal-root').innerHTML = `<div class="overlay"><div class="modal">
     <h2>${existing ? 'Ret booking' : (isAdmin()?'Ny booking':'Ny bookingforespørgsel')}</h2>
-    <div style="color:var(--muted);font-size:13px">${dk(ds)} kl. ${t} · ${bookedToday} af ${S.settings.max_animals_per_day} dyr booket denne dag</div>
-    ${isAdmin() && existing ? `<label>Dato</label><input type="date" id="f-date" value="${ds}">` : ''}
+    <div class="hint" id="f-day"></div>
+    ${canMove ? `<label>Dato</label><input type="date" id="f-date" value="${ds}">` : ''}
     <label>Vognmand</label>
     <select id="f-car" ${myCarrier?'disabled':''}>
       ${carriers.map(c=>`<option value="${c.id}" ${c.id===(existing?.carrier_id||myCarrier)?'selected':''}>${esc(c.name)}</option>`).join('')}
     </select>
     <label>Landmand</label>
-    <select id="f-far">${S.farmers.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select>
+    <select id="f-far">${S.farmers.map(f=>
+      `<option value="${f.id}" ${f.id===existing?.farmer_id?'selected':''}>${esc(f.name)}</option>`).join('')}</select>
     <div class="row">
-      <div><label>Antal slots à ${S.settings.slot_minutes} min.</label>
-        <select id="f-slots">${Array.from({length:maxSlots},(_,i)=>
-          `<option value="${i+1}">${i+1} (til ${endOf(t,(i+1)*S.settings.slot_minutes)})</option>`).join('')}</select></div>
+      ${canMove ? `<div><label>Starttid</label><select id="f-start"></select></div>` : ''}
+      <div><label>Antal slots à ${S.settings.slot_minutes} min.</label><select id="f-slots"></select></div>
       <div><label>Antal dyr</label><input id="f-animals" type="number" min="1" step="1"></div>
     </div>
     <div class="hint" id="f-cap"></div>
@@ -484,30 +477,85 @@ async function bookingModal(ds, t, existing, preset){
     </p>
   </div></div>`;
 
-  const cap = () => {
-    const n = parseInt($('f-slots').value,10)*perSlot;
-    $('f-cap').textContent = `Maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
-    $('f-animals').max = n;
-  };
-  $('f-slots').onchange = cap;
-  if(preset && preset <= maxSlots) $('f-slots').value = String(preset);
-  cap();
   if(existing){
     $('f-animals').value = existing.animal_count;
-    $('f-type').value = existing.type;
-    $('f-note').value = existing.note || '';
+    $('f-type').value    = existing.type;
+    $('f-note').value    = existing.note || '';
   }
+
+  // Hvor mange sammenhængende slots er ledige fra et givet starttidspunkt.
+  // Den booking der rettes tæller ikke som optaget.
+  const freeFrom = st => {
+    let n = 0;
+    for(let i = slots.indexOf(st); i < slots.length; i++){
+      const cur = slots[i];
+      const taken = others.some(b =>
+        toMin(hhmm(b.start_time)) <= toMin(cur) && toMin(hhmm(b.end_time)) > toMin(cur));
+      if(taken) break;
+      n++;
+    }
+    return Math.max(1, Math.min(n, S.settings.max_slots_per_booking));
+  };
+
+  const buildSlots = () => {
+    const st = $('f-start') ? $('f-start').value : t;
+    const max = freeFrom(st);
+    const want = parseInt($('f-slots').value,10)
+              || (existing ? existing.slot_count : 0)
+              || preset || 1;
+    $('f-slots').innerHTML = Array.from({length:max},(_,i)=>
+      `<option value="${i+1}">${i+1} (${st}–${endOf(st,(i+1)*S.settings.slot_minutes)})</option>`).join('');
+    $('f-slots').value = String(Math.min(want, max));
+    const n = parseInt($('f-slots').value,10) * perSlot;
+    $('f-cap').textContent = `Maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
+    $('f-animals').max = n;
+    if(want > max) showErr(`Der er kun plads til ${max} slot(s) fra ${st}.`);
+  };
+
+  const buildStart = () => {
+    if(!$('f-start')) return;
+    const cur = $('f-start').value || t;
+    $('f-start').innerHTML = slots.map(x=>{
+      const busy = others.some(b =>
+        toMin(hhmm(b.start_time)) <= toMin(x) && toMin(hhmm(b.end_time)) > toMin(x));
+      return busy ? '' : `<option value="${x}" ${x===cur?'selected':''}>${x}</option>`;
+    }).join('');
+    if(!$('f-start').value) $('f-start').value = $('f-start').options[0]?.value || t;
+  };
+
+  // Hent dagens belægning for den valgte dato
+  const loadDay = async () => {
+    const [rows, load] = await Promise.all([
+      loadCalendar(day, day),
+      sb.from('v_daily_load').select('*').eq('booking_date', day).maybeSingle()
+    ]);
+    others = rows.filter(r => !existing || r.id !== existing.id);
+    const dl = load.data;
+    booked = (dl ? dl.animals_approved + dl.animals_pending : 0)
+             - (existing && existing.booking_date === day ? existing.animal_count : 0);
+    $('f-day').textContent =
+      `${dk(day)} · ${booked} af ${S.settings.max_animals_per_day} dyr booket denne dag`;
+    buildStart(); buildSlots();
+  };
+
+  if($('f-date')) $('f-date').onchange = async () => {
+    day = $('f-date').value; await loadDay();
+  };
+  if($('f-start')) $('f-start').onchange = buildSlots;
+  $('f-slots').onchange = buildSlots;
+  await loadDay();
+
   $('f-cancel').onclick = () => $('modal-root').innerHTML = '';
   $('f-save').onclick = async () => {
     const animals = parseInt($('f-animals').value,10);
     const nSlots  = parseInt($('f-slots').value,10);
+    const start   = $('f-start') ? $('f-start').value : t;
     if(!(animals>0)) return showErr('Angiv antal dyr.');
     if(animals > nSlots*perSlot)
       return showErr(`${animals} dyr kræver mindst ${Math.ceil(animals/perSlot)} slots (maks ${perSlot} dyr pr. slot).`);
     if(!$('f-far').value) return showErr('Vælg landmand.');
     const row = {
-      booking_date: $('f-date') ? $('f-date').value : ds,
-      start_time: t+':00', slot_count: nSlots,
+      booking_date: day, start_time: start+':00', slot_count: nSlots,
       carrier_id: myCarrier || $('f-car').value,
       farmer_id: $('f-far').value,
       animal_count: animals, type: $('f-type').value,
@@ -528,17 +576,6 @@ async function bookingModal(ds, t, existing, preset){
     setView(S.view);
   };
   function showErr(m){ $('f-err').textContent=m; $('f-err').classList.remove('hide'); }
-}
-
-function freeSlotsFrom(t, rows, slots, existing){
-  const idx = slots.indexOf(t); let n=0;
-  for(let i=idx;i<slots.length;i++){
-    const s = slots[i];
-    const taken = rows.some(b => toMin(hhmm(b.start_time))<=toMin(s) && toMin(hhmm(b.end_time))>toMin(s));
-    if(taken) break;
-    n++;
-  }
-  return Math.max(1,n);
 }
 
 // ---------- BOOKINGLISTE ----------
