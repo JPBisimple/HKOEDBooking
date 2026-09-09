@@ -25,6 +25,9 @@
     --ok-bg:rgba(0,110,99,.30);
     --pend-bg:rgba(133,117,78,.30);
     --busy-bg:rgba(214,209,202,.10);
+    --cream:#E3DAC2;        /* lys guldtone til afventende - afledt */
+    --greige:#A69E8E;       /* fremmede bookinger */
+    --on-light:#1A3C34;     /* tekst på lyse flader */
   }
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
@@ -61,17 +64,19 @@
         padding:3px 5px;font-size:11px;cursor:pointer;overflow:hidden;color:var(--muted)}
   .cell[data-d]:hover{border-color:var(--gold-lt);background:rgba(133,117,78,.18);color:var(--gold-lt)}
   .cell.disabled{background:rgba(0,0,0,.22);border-color:transparent;cursor:not-allowed;color:transparent}
-  .cell.busy{background:var(--busy-bg);border-left:4px solid #6E7A72;color:var(--muted);cursor:default}
-  .cell.own{color:var(--ink);cursor:default}
-  .cell.own.GODKENDT{background:var(--ok-bg);border-color:var(--green);border-left:4px solid var(--green)}
-  .cell.own.AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--gold);border-left:4px solid var(--gold-lt)}
-  .cell.own.pre{background-image:repeating-linear-gradient(45deg,rgba(214,209,202,.10) 0 5px,transparent 5px 10px)}
-  .cell.cont{border-top-style:dashed}
-  .cell.more{color:var(--muted);font-style:italic;font-size:10px}
+  .cell.busy{background:var(--greige);border-color:#8B8373;border-left:5px solid #6E6759;
+             color:var(--on-light);cursor:default}
+  .cell.own{color:var(--on-light);cursor:default;font-weight:500}
+  .cell.own.GODKENDT{background:var(--warm);border-color:var(--green);border-left:5px solid var(--green)}
+  .cell.own.AFVENTER_GODKENDELSE{background:var(--cream);border-color:var(--gold);border-left:5px solid var(--gold)}
+  .cell.own.pre{background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 5px,transparent 5px 10px)}
+  .cell.cont{border-top-style:dashed;border-top-color:rgba(26,60,52,.35)}
+  .more{color:rgba(26,60,52,.78);font-style:italic;font-size:10px;font-weight:400}
   .cell.sel{background:rgba(133,117,78,.45);border-color:var(--gold-lt);box-shadow:inset 0 0 0 1px var(--gold-lt);color:#fff}
-  .tag{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;border:1px solid;color:var(--ink)}
-  .t-GODKENDT{background:var(--ok-bg);border-color:var(--green)}
-  .t-AFVENTER_GODKENDELSE{background:var(--pend-bg);border-color:var(--gold-lt)}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;border:1px solid;
+       color:var(--on-light);font-weight:600}
+  .t-GODKENDT{background:var(--warm);border-color:var(--green)}
+  .t-AFVENTER_GODKENDELSE{background:var(--cream);border-color:var(--gold)}
   .t-AFVIST,.t-ANNULLERET{background:rgba(214,209,202,.08);border-color:var(--line);color:var(--muted)}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
   .legend i{display:inline-block;width:12px;height:12px;border:1px solid var(--line);vertical-align:-2px;margin-right:4px}
@@ -362,10 +367,10 @@ async function renderCal(){
       <div style="flex:0;color:var(--muted);align-self:center">Uge ${isoWeek(S.weekStart)} · ${dk(from)} – ${dk(to)}</div>
     </div>${grid}
     <div class="legend">
-      <span><i style="background:var(--ok-bg);border-color:var(--green)"></i>Egen godkendt booking</span>
-      <span><i style="background:var(--pend-bg);border-color:var(--gold-lt)"></i>Egen afventende</span>
-      <span><i style="background:var(--pend-bg);border-color:var(--gold)"></i>Prebooking (skraveret)</span>
-      <span><i style="background:var(--busy-bg)"></i>Optaget af anden vognmand</span>
+      <span><i style="background:var(--warm);border-color:var(--green)"></i>Egen godkendt booking</span>
+      <span><i style="background:var(--cream);border-color:var(--gold)"></i>Egen afventende</span>
+      <span><i style="background:var(--cream);border-color:var(--gold);background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 4px,transparent 4px 8px)"></i>Prebooking (skraveret)</span>
+      <span><i style="background:var(--greige)"></i>Optaget af anden vognmand</span>
       <span><i style="background:rgba(0,0,0,.22)"></i>Lukket / passeret</span>
       <span>Klik på et ledigt slot, eller træk hen over flere i samme dag for at booke dem samlet.</span>
     </div>
