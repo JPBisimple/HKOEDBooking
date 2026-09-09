@@ -257,8 +257,7 @@ async function renderDash(){
   const days = [];
   for(let i=0;i<14;i++){
     const ds = fmt(addDays(new Date(),i)), d = daily[ds];
-    days.push({ ds, open:isOpenDay(ds),
-                appr:d?d.animals_approved:0, pend:d?d.animals_pending:0 });
+    days.push({ ds, open:isOpenDay(ds), appr:d?d.animals_approved:0, pend:d?d.animals_pending:0 });
   }
   const peak = Math.max(max, ...days.map(d=>d.appr+d.pend)) * 1.12;
   const W=1080,H=260,PADL=46,PADB=42,PADT=12;
@@ -596,6 +595,8 @@ async function renderList(){
       <td>${r.animal_count}</td><td>${r.type==='PREBOOKING'?'Prebooking':'Booking'}</td>
       <td><span class="tag t-${r.status}">${statusTxt(r.status)}</span></td>
       <td style="white-space:nowrap">
+        ${r.type==='PREBOOKING' && ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
+          ? `<button class="btn" data-confirm="${r.id}">Bekræft booking</button>`:''}
         ${isAdmin()?`<button class="btn sec" data-edit="${r.id}">Ret</button>
                      <button class="btn danger" data-del="${r.id}">Slet</button>`:''}
         ${['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
@@ -606,6 +607,13 @@ async function renderList(){
 }
 
 function wireRowActions(el, rows, refresh){
+  // Prebooking -> Booking. Statussen bevares: slot og kapacitet er allerede
+  // reserveret, og bekræftelsen ændrer kun forpligtelsen, ikke leverancen.
+  el.querySelectorAll('[data-confirm]').forEach(b => b.onclick = async () => {
+    if(!confirm('Bekræft prebookingen som endelig booking?')) return;
+    const { error } = await sb.from('bookings').update({type:'BOOKING'}).eq('id',b.dataset.confirm);
+    error ? alert(msg(error)) : refresh();
+  });
   el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
     if(!confirm('Annullér bookingen?')) return;
     const { error } = await sb.from('bookings').update({status:'ANNULLERET'}).eq('id',b.dataset.cancel);
