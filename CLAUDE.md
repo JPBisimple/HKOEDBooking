@@ -46,6 +46,9 @@ Landmanden melder dyr til slagtning. To indgange, samme resultat:
 Vognmanden skal altså kunne oprette en tilmelding for en landmand, der ikke
 selv bruger systemet.
 
+Landmanden angiver en **ønsket afhentningsdato** ved tilmeldingen. Det er et
+ønske, ikke en aftale — vognmanden er ikke bundet af den.
+
 **Der er ingen tilmeldingsfrist.** Først til mølle.
 
 ### Booking
@@ -63,12 +66,30 @@ derfor aldrig overstige bilens kapacitet — vognmanden styrer det selv.
 ### Afhentningstidspunkt
 
 **Vognmanden indtaster dato og tidspunkt manuelt pr. tilmelding.** Systemet
-udleder det ikke. Landmanden kan se det i appen, når vognmanden har sat det.
+udleder det ikke og beregner ikke ruter.
+
+To adskilte felter, som aldrig må overskrive hinanden:
+
+- **Ønsket dato** — sat af landmanden ved tilmelding. Vognmanden kan ikke ændre den.
+- **Aftalt dato og tidspunkt** — sat af vognmanden. Tom indtil han har planlagt.
+
+Landmanden skal kunne se begge, så han kan se, om ønsket blev imødekommet,
+eller om der bare ikke er planlagt endnu.
+
+**Vognmanden giver selv landmanden besked** — telefon, SMS, uden for
+systemet. Appen sender ingen notifikationer og skal ikke bygges til det.
+Den er opslagsstedet, ikke beskedkanalen.
+
+### Tilmeldingen godkendes ikke
+
+En tilmelding har **ingen godkendelsesstatus**. Den er data, der venter på at
+komme med en bil. Administrationen godkender bookinger — ikke tilmeldinger.
 
 ### Hvad vognmanden må
 
 - Ser og redigerer kun egne tilmeldinger
-- Kun indtil administrationen har bekræftet dem
+- Kan rette dem, indtil de er koblet til en godkendt booking. Derefter er
+  dyrene på vej, og listen ligger fast.
 - Alt andet i systemet er "optaget"
 
 ---
@@ -141,9 +162,8 @@ Landmandsdelen. Ikke besluttet endnu:
 <!-- UDFYLD -->
 
 - Login for landmænd
-- Tabel for tilmeldinger, og hvordan de kobles til en booking
-- Hvilke felter en tilmelding har
-- Om administrationen godkender tilmeldinger, og hvad status hedder
+- Tabel for tilmeldinger: felter og kobling til `bookings`
+  (flere tilmeldinger pr. booking — vognmanden fylder bilen fra flere gårde)
 
 ## Sprog
 
