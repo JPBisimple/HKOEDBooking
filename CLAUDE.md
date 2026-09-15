@@ -40,8 +40,8 @@ Tre lag, hvert med sin opgave:
    `validate_booking`.
 
 Nye tabeller i `public` får automatisk RLS slået til (event trigger
-`rls_auto_enable`). RLS uden policies betyder **ingen adgang** — husk at
-skrive policies, ellers virker intet.
+`ensure_rls`, som kalder funktionen `rls_auto_enable()`). RLS uden policies
+betyder **ingen adgang** — husk at skrive policies, ellers virker intet.
 
 `anon` har ingen læse- eller skriverettigheder. Det skal forblive sådan.
 
