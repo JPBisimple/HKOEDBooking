@@ -169,8 +169,17 @@ måde at pege på `farmers` — profiltabellen skal udvides.** Check-constraint'
 er formuleret, så en ny rolle ikke automatisk kræver `carrier_id`.
 
 `bookings`: `booking_date`, `start_time`, `slot_count`, `animal_count`,
+`n_ko`, `n_kvie`, `n_tyr`, `n_stud`, `n_kalv`,
 `type`, `status`, `carrier_id`, `farmer_id`, `created_by`, `rejection_reason`,
 `note`, `capacity_override`, `external_ref`, `end_time`, `period`
+
+Dyr angives ikke som ét samlet tal, men pr. kategori (`n_ko`, `n_kvie`,
+`n_tyr`, `n_stud`, `n_kalv`). `animal_count` er ikke klientstyret —
+`validate_booking` sætter den til summen af kategorikolonnerne ved hver
+INSERT/UPDATE, ligesom `end_time`/`period`. Den er bevidst *ikke* en
+`GENERATED`-kolonne: en `BEFORE`-trigger kan ikke læse værdien af en
+generated-kolonne, før den er beregnet, og kapacitetstjekket i samme
+trigger har brug for summen med det samme.
 
 <!-- UDFYLD: fulde kolonnedefinitioner og constraints -->
 

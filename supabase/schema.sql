@@ -33,6 +33,11 @@ CREATE TABLE public.bookings (
   carrier_id uuid NOT NULL,
   farmer_id uuid NOT NULL,
   animal_count integer NOT NULL,
+  n_ko integer NOT NULL DEFAULT 0,
+  n_kvie integer NOT NULL DEFAULT 0,
+  n_tyr integer NOT NULL DEFAULT 0,
+  n_stud integer NOT NULL DEFAULT 0,
+  n_kalv integer NOT NULL DEFAULT 0,
   type booking_type NOT NULL DEFAULT 'BOOKING'::booking_type,
   status booking_status NOT NULL DEFAULT 'AFVENTER_GODKENDELSE'::booking_status,
   note text,
@@ -102,6 +107,11 @@ ALTER TABLE public.bookings ADD CONSTRAINT bookings_farmer_id_fkey FOREIGN KEY (
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_no_overlap EXCLUDE USING gist (period WITH &&) WHERE ((status = ANY (ARRAY['AFVENTER_GODKENDELSE'::booking_status, 'GODKENDT'::booking_status])));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_pkey PRIMARY KEY (id);
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_slot_count_check CHECK ((slot_count >= 1));
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_ko_check CHECK ((n_ko >= 0));
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_kvie_check CHECK ((n_kvie >= 0));
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_tyr_check CHECK ((n_tyr >= 0));
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_stud_check CHECK ((n_stud >= 0));
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_kalv_check CHECK ((n_kalv >= 0));
 ALTER TABLE public.carriers ADD CONSTRAINT carriers_name_key UNIQUE (name);
 ALTER TABLE public.carriers ADD CONSTRAINT carriers_pkey PRIMARY KEY (id);
 ALTER TABLE public.profiles ADD CONSTRAINT chk_carrier_has_company CHECK (((role <> 'carrier'::app_role) OR (carrier_id IS NOT NULL)));
@@ -331,6 +341,12 @@ end $function$
 --
 -- Sætter new.end_time/new.period ud fra settings.slot_minutes (erstatter
 -- den tidligere GENERATED-beregning, der havde 30 hardkodet).
+--
+-- Sætter også new.animal_count som summen af kategorikolonnerne
+-- (n_ko/n_kvie/n_tyr/n_stud/n_kalv). Klienten sender ikke animal_count
+-- direkte. animal_count er bevidst IKKE en GENERATED-kolonne: en BEFORE
+-- trigger kan ikke læse en endnu ikke-beregnet generated-kolonne, og
+-- kapacitetstjekket nedenfor har brug for værdien med det samme.
 CREATE OR REPLACE FUNCTION public.validate_booking()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -344,6 +360,9 @@ declare
 begin
   select * into s from public.settings where id;
   perform pg_advisory_xact_lock(hashtext(new.booking_date::text));
+
+  new.animal_count := coalesce(new.n_ko,0) + coalesce(new.n_kvie,0) + coalesce(new.n_tyr,0)
+                     + coalesce(new.n_stud,0) + coalesce(new.n_kalv,0);
 
   new.end_time := new.start_time + make_interval(mins => new.slot_count * s.slot_minutes);
   new.period := tsrange(

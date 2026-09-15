@@ -461,7 +461,14 @@ async function bookingModal(ds, t, existing, preset){
     <div class="row">
       ${canMove ? `<div><label>Starttid</label><select id="f-start"></select></div>` : ''}
       <div><label>Antal slots à ${S.settings.slot_minutes} min.</label><select id="f-slots"></select></div>
-      <div><label>Antal dyr</label><input id="f-animals" type="number" min="1" step="1"></div>
+    </div>
+    <label>Dyr pr. kategori</label>
+    <div class="row">
+      <div><label>Ko</label><input id="f-ko" type="number" min="0" step="1" value="0"></div>
+      <div><label>Kvie</label><input id="f-kvie" type="number" min="0" step="1" value="0"></div>
+      <div><label>Tyr</label><input id="f-tyr" type="number" min="0" step="1" value="0"></div>
+      <div><label>Stud</label><input id="f-stud" type="number" min="0" step="1" value="0"></div>
+      <div><label>Kalv</label><input id="f-kalv" type="number" min="0" step="1" value="0"></div>
     </div>
     <div class="hint" id="f-cap"></div>
     <label>Type</label>
@@ -476,8 +483,11 @@ async function bookingModal(ds, t, existing, preset){
     </p>
   </div></div>`;
 
+  const catIds = ['ko','kvie','tyr','stud','kalv'];
+  const catTotal = () => catIds.reduce((sum,c) => sum + (parseInt($('f-'+c).value,10)||0), 0);
+
   if(existing){
-    $('f-animals').value = existing.animal_count;
+    catIds.forEach(c => $('f-'+c).value = existing['n_'+c] ?? 0);
     $('f-type').value    = existing.type;
     $('f-note').value    = existing.note || '';
   }
@@ -505,10 +515,13 @@ async function bookingModal(ds, t, existing, preset){
     $('f-slots').innerHTML = Array.from({length:max},(_,i)=>
       `<option value="${i+1}">${i+1} (${st}–${endOf(st,(i+1)*S.settings.slot_minutes)})</option>`).join('');
     $('f-slots').value = String(Math.min(want, max));
-    const n = parseInt($('f-slots').value,10) * perSlot;
-    $('f-cap').textContent = `Maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
-    $('f-animals').max = n;
+    updateCap();
     if(want > max) showErr(`Der er kun plads til ${max} slot(s) fra ${st}.`);
+  };
+
+  const updateCap = () => {
+    const n = parseInt($('f-slots').value,10) * perSlot;
+    $('f-cap').textContent = `${catTotal()} dyr valgt · maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
   };
 
   const buildStart = () => {
@@ -542,14 +555,16 @@ async function bookingModal(ds, t, existing, preset){
   };
   if($('f-start')) $('f-start').onchange = buildSlots;
   $('f-slots').onchange = buildSlots;
+  catIds.forEach(c => $('f-'+c).oninput = updateCap);
   await loadDay();
 
   $('f-cancel').onclick = () => $('modal-root').innerHTML = '';
   $('f-save').onclick = async () => {
-    const animals = parseInt($('f-animals').value,10);
+    const counts  = Object.fromEntries(catIds.map(c => [c, parseInt($('f-'+c).value,10)||0]));
+    const animals = catIds.reduce((sum,c) => sum + counts[c], 0);
     const nSlots  = parseInt($('f-slots').value,10);
     const start   = $('f-start') ? $('f-start').value : t;
-    if(!(animals>0)) return showErr('Angiv antal dyr.');
+    if(!(animals>0)) return showErr('Angiv mindst ét dyr, fordelt på kategori.');
     if(animals > nSlots*perSlot)
       return showErr(`${animals} dyr kræver mindst ${Math.ceil(animals/perSlot)} slots (maks ${perSlot} dyr pr. slot).`);
     if(!$('f-far').value) return showErr('Vælg landmand.');
@@ -557,7 +572,8 @@ async function bookingModal(ds, t, existing, preset){
       booking_date: day, start_time: start+':00', slot_count: nSlots,
       carrier_id: myCarrier || $('f-car').value,
       farmer_id: $('f-far').value,
-      animal_count: animals, type: $('f-type').value,
+      n_ko: counts.ko, n_kvie: counts.kvie, n_tyr: counts.tyr, n_stud: counts.stud, n_kalv: counts.kalv,
+      type: $('f-type').value,
       note: $('f-note').value.trim() || null
     };
     $('f-save').disabled = true;
