@@ -47,17 +47,22 @@ betyder **ingen adgang** — husk at skrive policies, ellers virker intet.
 
 ### Kendte svagheder — ret dem, når landmandsdelen bygges
 
-**Alvorlig: `period` opdateres ikke ved redigering.** Dobbeltbooking spærres
+`end_time` og `period` er `GENERATED ALWAYS AS (...) STORED`-kolonner,
+beregnet fra `start_time`/`slot_count`/`booking_date` i samme række. De
+genberegnes derfor automatisk ved både INSERT og UPDATE — bekræftet ved
+`attgenerated = 's'` i `pg_attribute` og ved en direkte UI-test: en booking
+flyttet fra 08:00 til 11:00 fik straks korrekt `period`, og 08:00 kunne
+øjeblikkeligt bookes af en anden vognmand uden fejl. Dobbeltbooking spærres
 af `bookings_no_overlap` (`EXCLUDE USING gist (period WITH &&)` for status
-`AFVENTER_GODKENDELSE` og `GODKENDT`). Men `period` og `end_time` er
-kolonne-`DEFAULT`, ikke `GENERATED` — de sættes kun ved INSERT. Klienten
-sender `start_time` og `slot_count` ved UPDATE, og `validate_booking` rører
-ikke de to kolonner. Flyttes en booking fra 08.00 til 11.00, forbliver 08.00
-spærret, og 11.00 kan bookes af en anden oveni.
-Rettelsen hører hjemme i `validate_booking`: sæt `new.end_time` og
-`new.period` dér ud fra `s.slot_minutes`. Det fjerner samtidig den hardkodede
-`30` i kolonnedefaults. En `GENERATED`-kolonne kan ikke bruges — den må ikke
-slå op i `settings`.
+`AFVENTER_GODKENDELSE` og `GODKENDT`).
+
+Netop fordi de er generated, kan de kun referere kolonner i egen række —
+derfor er `30` hardkodet i stedet for at slå op i `settings.slot_minutes`,
+som `validate_booking` ellers korrekt bruger. Ændres `slot_minutes`, regner
+de generated-kolonner forkert varighed, mens valideringen regner rigtigt —
+og det er stadig `period`, der bærer dobbeltbookings-spærringen. Rettelsen
+kræver at droppe `GENERATED` og i stedet sætte `new.end_time`/`new.period`
+i `validate_booking` ud fra `s.slot_minutes`.
 
 - `farmers_read` er `true`. Alle indloggede kan læse hele leverandørlisten.
   Får landmænd login, kan hver landmand se alle andre. Skal snævres ind.

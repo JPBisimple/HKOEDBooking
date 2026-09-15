@@ -18,10 +18,12 @@ CREATE TYPE public.booking_type AS ENUM ('PREBOOKING', 'BOOKING');
 -- ============================================================
 -- Tabeller
 --
--- OBS: end_time og period har 30 hardkodet i DEFAULT, mens
--- validate_booking() korrekt bruger settings.slot_minutes ved INSERT.
--- Ved UPDATE sætter validate_booking() hverken end_time eller period,
--- så en flyttet booking spærrer stadig sit gamle slot. Se CLAUDE.md.
+-- OBS: end_time og period er GENERATED ALWAYS AS (...) STORED (bekræftet
+-- via pg_attribute.attgenerated = 's') og genberegnes derfor automatisk
+-- ved både INSERT og UPDATE. Netop fordi de er generated, kan de kun
+-- referere kolonner i egen række, så 30 er hardkodet i stedet for at slå
+-- op i settings.slot_minutes, som validate_booking() ellers korrekt
+-- bruger. Ændres slot_minutes, regner de to forskelligt. Se CLAUDE.md.
 -- ============================================================
 
 CREATE TABLE public.bookings (
@@ -42,8 +44,8 @@ CREATE TABLE public.bookings (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_by uuid,
   updated_at timestamp with time zone,
-  end_time time without time zone DEFAULT (start_time + make_interval(mins => (slot_count * 30))),
-  period tsrange DEFAULT tsrange((booking_date + start_time), ((booking_date + start_time) + make_interval(mins => (slot_count * 30))), '[)'::text)
+  end_time time without time zone GENERATED ALWAYS AS (start_time + make_interval(mins => (slot_count * 30))) STORED,
+  period tsrange GENERATED ALWAYS AS (tsrange((booking_date + start_time), ((booking_date + start_time) + make_interval(mins => (slot_count * 30))), '[)'::text)) STORED
 );
 
 CREATE TABLE public.carriers (
@@ -328,8 +330,8 @@ end $function$
 
 -- Forretningsregler, kapacitetskontrol og statusovergange. Se CLAUDE.md.
 --
--- BEMÆRK — bekræftet fejl: sætter hverken new.end_time eller new.period,
--- så en flyttet bookings gamle tidsrum forbliver spærret efter UPDATE.
+-- Rører ikke end_time/period — unødvendigt, da de er GENERATED-kolonner
+-- der genberegnes automatisk (se tabeldefinitionen for bookings ovenfor).
 CREATE OR REPLACE FUNCTION public.validate_booking()
  RETURNS trigger
  LANGUAGE plpgsql
