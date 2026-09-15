@@ -18,12 +18,11 @@ CREATE TYPE public.booking_type AS ENUM ('PREBOOKING', 'BOOKING');
 -- ============================================================
 -- Tabeller
 --
--- OBS: end_time og period er GENERATED ALWAYS AS (...) STORED (bekræftet
--- via pg_attribute.attgenerated = 's') og genberegnes derfor automatisk
--- ved både INSERT og UPDATE. Netop fordi de er generated, kan de kun
--- referere kolonner i egen række, så 30 er hardkodet i stedet for at slå
--- op i settings.slot_minutes, som validate_booking() ellers korrekt
--- bruger. Ændres slot_minutes, regner de to forskelligt. Se CLAUDE.md.
+-- end_time og period var oprindeligt GENERATED ALWAYS AS (...) STORED med
+-- 30 hardkodet (generated-kolonner kan kun referere kolonner i egen
+-- række, ikke slå op i settings). Migreret til almindelige kolonner
+-- (ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION) og sættes nu i
+-- validate_booking() ud fra settings.slot_minutes. Se CLAUDE.md.
 -- ============================================================
 
 CREATE TABLE public.bookings (
@@ -44,8 +43,8 @@ CREATE TABLE public.bookings (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_by uuid,
   updated_at timestamp with time zone,
-  end_time time without time zone GENERATED ALWAYS AS (start_time + make_interval(mins => (slot_count * 30))) STORED,
-  period tsrange GENERATED ALWAYS AS (tsrange((booking_date + start_time), ((booking_date + start_time) + make_interval(mins => (slot_count * 30))), '[)'::text)) STORED
+  end_time time without time zone,
+  period tsrange
 );
 
 CREATE TABLE public.carriers (
@@ -330,8 +329,8 @@ end $function$
 
 -- Forretningsregler, kapacitetskontrol og statusovergange. Se CLAUDE.md.
 --
--- Rører ikke end_time/period — unødvendigt, da de er GENERATED-kolonner
--- der genberegnes automatisk (se tabeldefinitionen for bookings ovenfor).
+-- Sætter new.end_time/new.period ud fra settings.slot_minutes (erstatter
+-- den tidligere GENERATED-beregning, der havde 30 hardkodet).
 CREATE OR REPLACE FUNCTION public.validate_booking()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -345,6 +344,13 @@ declare
 begin
   select * into s from public.settings where id;
   perform pg_advisory_xact_lock(hashtext(new.booking_date::text));
+
+  new.end_time := new.start_time + make_interval(mins => new.slot_count * s.slot_minutes);
+  new.period := tsrange(
+    (new.booking_date + new.start_time),
+    (new.booking_date + new.start_time) + make_interval(mins => new.slot_count * s.slot_minutes),
+    '[)'
+  );
 
   if new.status in ('AFVENTER_GODKENDELSE','GODKENDT') then
 
