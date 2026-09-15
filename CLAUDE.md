@@ -19,14 +19,56 @@ Al klientkode er offentligt læsbar. Kun den publicerbare nøgle må ligge i
 
 ## Sikkerhedsmodel
 
-**Al adgangskontrol ligger i Row Level Security i Supabase.** Ikke i UI'et.
-At en knap er skjult, beskytter ingenting.
+**Al adgangskontrol ligger i databasen.** Ikke i UI'et. At en knap er skjult,
+beskytter ingenting.
 
 Vognmænd er konkurrenter. Alt hvad der ikke tilhører vognmanden selv, vises
-som **"optaget"** — ingen navne, ingen antal, ingen CHR-numre. Det gælder
-både kalenderen og tilmeldinger.
+som **"optaget"** — ingen navne, ingen antal, ingen CHR-numre.
 
-Koden oversætter to databasefejl til brugertekst:
+### Mønsteret — følg det for nye tabeller
+
+Tre lag, hvert med sin opgave:
+
+1. **RLS-policy på tabellen.** Bestemmer hvilke *rækker* brugeren må røre.
+   Policies hænger på to hjælpefunktioner: `is_admin()` og `my_carrier_id()`,
+   som begge slår op i `profiles` via `auth.uid()`.
+2. **View til visning af andres data.** Views omgår RLS, så maskeringen skal
+   ske i selve SELECT-listen — felter sættes til NULL eller en fast tekst for
+   rækker, brugeren ikke ejer. Se `v_calendar`. **Maskér i view'et, aldrig i
+   klienten:** et felt, der hentes og skjules i UI'et, er lækket.
+3. **Trigger til validering.** Forretningsregler og statusovergange. Se
+   `validate_booking`.
+
+Nye tabeller i `public` får automatisk RLS slået til (event trigger
+`rls_auto_enable`). RLS uden policies betyder **ingen adgang** — husk at
+skrive policies, ellers virker intet.
+
+`anon` har ingen læse- eller skriverettigheder. Det skal forblive sådan.
+
+### Kendte svagheder — ret dem, når landmandsdelen bygges
+
+**Alvorlig: `period` opdateres ikke ved redigering.** Dobbeltbooking spærres
+af `bookings_no_overlap` (`EXCLUDE USING gist (period WITH &&)` for status
+`AFVENTER_GODKENDELSE` og `GODKENDT`). Men `period` og `end_time` er
+kolonne-`DEFAULT`, ikke `GENERATED` — de sættes kun ved INSERT. Klienten
+sender `start_time` og `slot_count` ved UPDATE, og `validate_booking` rører
+ikke de to kolonner. Flyttes en booking fra 08.00 til 11.00, forbliver 08.00
+spærret, og 11.00 kan bookes af en anden oveni.
+Rettelsen hører hjemme i `validate_booking`: sæt `new.end_time` og
+`new.period` dér ud fra `s.slot_minutes`. Det fjerner samtidig den hardkodede
+`30` i kolonnedefaults. En `GENERATED`-kolonne kan ikke bruges — den må ikke
+slå op i `settings`.
+
+- `farmers_read` er `true`. Alle indloggede kan læse hele leverandørlisten.
+  Får landmænd login, kan hver landmand se alle andre. Skal snævres ind.
+- Statuseskalering blokeres kun af `validate_booking`, ikke af
+  `bookings_update`-policyen. Fjernes triggeren, er godkendelsesflowet åbent.
+- `v_calendar` maskerer ikke `slot_count` og `id`.
+- `anon` har TRUNCATE på alle tabeller (Supabase-standard). Ikke verificeret
+  om det kan udnyttes via REST-API'et.
+
+### Fejlkoder oversat i klienten
+
 - `42501` / "row-level security" → "Du har ikke rettigheder til denne handling."
 - `23P01` (exclusion constraint) → dobbeltbooking af samme slot
 
@@ -114,11 +156,24 @@ vognmanden vælger fra. Ingen landmandsrolle, intet landmands-UI.
 ### Datamodel
 
 Tabeller: `profiles`, `bookings`, `carriers`, `farmers`, `closed_days`, `settings`
-Views: `v_calendar`, `v_daily_load`
-Funktion: `sync_dk_holidays(from_year, to_year)`
+Views: `v_calendar` (maskeret kalender), `v_daily_load` (aggregeret dagsbelastning)
+Funktioner: `is_admin()`, `my_carrier_id()`, `validate_booking()` (trigger),
+`sync_dk_holidays(from_year, to_year)`, `dk_holidays(y)`, `easter_sunday(y)`
+
+Enums:
+- `app_role`: `admin`, `carrier`
+- `booking_status`: `AFVENTER_GODKENDELSE`, `GODKENDT`, `AFVIST`, `ANNULLERET`
+- `booking_type`: `PREBOOKING`, `BOOKING`
+
+`profiles` har `carrier_id` med fremmednøgle til `carriers`, og
+`chk_carrier_has_company` kræver, at en bruger med rollen `carrier` altid har
+et firma. **En landmandsrolle kræver derfor både en ny `app_role`-værdi og en
+måde at pege på `farmers` — profiltabellen skal udvides.** Check-constraint'en
+er formuleret, så en ny rolle ikke automatisk kræver `carrier_id`.
 
 `bookings`: `booking_date`, `start_time`, `slot_count`, `animal_count`,
-`type`, `status`, `carrier_id`, `farmer_id`, `created_by`, `rejection_reason`
+`type`, `status`, `carrier_id`, `farmer_id`, `created_by`, `rejection_reason`,
+`note`, `capacity_override`, `external_ref`, `end_time`, `period`
 
 <!-- UDFYLD: fulde kolonnedefinitioner og constraints -->
 
@@ -142,6 +197,13 @@ Ligger i `settings`-tabellen og ændres i UI'et — **hardkod aldrig tallene**:
 - Antal dyr afgør mindste antal slots: `ceil(dyr / max_animals_per_slot)`
 - Markering hen over flere slots stopper ved første optagne eller lukkede
   slot og ved `max_slots_per_booking`
+- `pending_counts_in_capacity` styrer, om afventende bookinger tæller med i
+  dagsloftet
+- Kun admin kan sætte `capacity_override` og dermed bryde dagsloftet
+
+Alt dette håndhæves i `validate_booking`, ikke kun i klienten. Dagsloftet
+låses med `pg_advisory_xact_lock` pr. dato, så to samtidige bookinger ikke
+kan snige sig forbi.
 
 ---
 
