@@ -15,6 +15,8 @@ CREATE TYPE public.booking_status AS ENUM ('AFVENTER_GODKENDELSE', 'GODKENDT', '
 
 CREATE TYPE public.booking_type AS ENUM ('PREBOOKING', 'BOOKING');
 
+CREATE TYPE public.animal_category AS ENUM ('KO', 'KVIE', 'TYR', 'STUD', 'KALV');
+
 -- ============================================================
 -- Tabeller
 --
@@ -49,7 +51,31 @@ CREATE TABLE public.bookings (
   updated_by uuid,
   updated_at timestamp with time zone,
   end_time time without time zone,
-  period tsrange
+  period tsrange,
+  driver_name text,
+  truck_plate text,
+  trailer_plate text,
+  arrived_at timestamp with time zone,
+  picked_up_at timestamp with time zone
+);
+
+CREATE TABLE public.booking_animals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  booking_id uuid NOT NULL,
+  category animal_category NOT NULL,
+  eid text,
+  chr text,
+  animal_no text,
+  qa_mark smallint NOT NULL DEFAULT 2,
+  scanned_at timestamp with time zone,
+  loaded_at timestamp with time zone,
+  salmonella_status text,
+  remarks text,
+  source text NOT NULL DEFAULT 'MANUAL'::text,
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_by uuid,
+  updated_at timestamp with time zone
 );
 
 CREATE TABLE public.carriers (
@@ -75,7 +101,11 @@ CREATE TABLE public.farmers (
   supplier_no text,
   active boolean NOT NULL DEFAULT true,
   external_ref text,
-  created_at timestamp with time zone NOT NULL DEFAULT now()
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  chr text,
+  address text,
+  zip_code text,
+  city text
 );
 
 CREATE TABLE public.profiles (
@@ -112,6 +142,10 @@ ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_kvie_check CHECK ((n_kvie 
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_tyr_check CHECK ((n_tyr >= 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_stud_check CHECK ((n_stud >= 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_kalv_check CHECK ((n_kalv >= 0));
+ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_pkey PRIMARY KEY (id);
+ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE;
+ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_qa_mark_check CHECK ((qa_mark = ANY (ARRAY[2, 3])));
+ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_source_check CHECK ((source = ANY (ARRAY['MANUAL'::text, 'WAND_UPLOAD'::text])));
 ALTER TABLE public.carriers ADD CONSTRAINT carriers_name_key UNIQUE (name);
 ALTER TABLE public.carriers ADD CONSTRAINT carriers_pkey PRIMARY KEY (id);
 ALTER TABLE public.profiles ADD CONSTRAINT chk_carrier_has_company CHECK (((role <> 'carrier'::app_role) OR (carrier_id IS NOT NULL)));
@@ -144,6 +178,9 @@ CREATE UNIQUE INDEX farmers_pkey ON public.farmers USING btree (id);
 CREATE UNIQUE INDEX farmers_supplier_no_key ON public.farmers USING btree (supplier_no);
 CREATE UNIQUE INDEX settings_pkey ON public.settings USING btree (id);
 CREATE UNIQUE INDEX profiles_pkey ON public.profiles USING btree (id);
+CREATE UNIQUE INDEX booking_animals_pkey ON public.booking_animals USING btree (id);
+CREATE UNIQUE INDEX booking_animals_eid_key ON public.booking_animals USING btree (eid) WHERE (eid IS NOT NULL);
+CREATE INDEX idx_booking_animals_booking ON public.booking_animals USING btree (booking_id);
 
 -- ============================================================
 -- Row Level Security
@@ -155,6 +192,7 @@ ALTER TABLE public.closed_days ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.farmers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.booking_animals ENABLE ROW LEVEL SECURITY;
 
 -- Kendt svaghed: farmers_read er USING (true) — alle indloggede kan læse
 -- hele leverandørlisten. Skal snævres ind når landmandsdelen bygges.
@@ -172,6 +210,15 @@ CREATE POLICY settings_read ON public.settings AS PERMISSIVE FOR SELECT TO authe
 CREATE POLICY settings_write ON public.settings AS PERMISSIVE FOR ALL TO authenticated USING (is_admin()) WITH CHECK (is_admin());
 CREATE POLICY profiles_read ON public.profiles AS PERMISSIVE FOR SELECT TO authenticated USING (((id = auth.uid()) OR is_admin()));
 CREATE POLICY profiles_write ON public.profiles AS PERMISSIVE FOR ALL TO authenticated USING (is_admin()) WITH CHECK (is_admin());
+
+-- booking_animals: samme ejerskabsmønster som bookings, men via join, da
+-- ejerskab (carrier_id) ligger på den overordnede booking. Ingen maskeret
+-- view — andre vognmænd skal aldrig se dyredetaljer for bookinger, de
+-- ikke selv ejer.
+CREATE POLICY booking_animals_select ON public.booking_animals AS PERMISSIVE FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1 FROM bookings b WHERE ((b.id = booking_animals.booking_id) AND (is_admin() OR (b.carrier_id = my_carrier_id()))))));
+CREATE POLICY booking_animals_insert ON public.booking_animals AS PERMISSIVE FOR INSERT TO authenticated WITH CHECK ((EXISTS ( SELECT 1 FROM bookings b WHERE ((b.id = booking_animals.booking_id) AND (is_admin() OR (b.carrier_id = my_carrier_id()))))));
+CREATE POLICY booking_animals_update ON public.booking_animals AS PERMISSIVE FOR UPDATE TO authenticated USING ((EXISTS ( SELECT 1 FROM bookings b WHERE ((b.id = booking_animals.booking_id) AND (is_admin() OR (b.carrier_id = my_carrier_id())))))) WITH CHECK ((EXISTS ( SELECT 1 FROM bookings b WHERE ((b.id = booking_animals.booking_id) AND (is_admin() OR (b.carrier_id = my_carrier_id()))))));
+CREATE POLICY booking_animals_delete ON public.booking_animals AS PERMISSIVE FOR DELETE TO authenticated USING ((EXISTS ( SELECT 1 FROM bookings b WHERE ((b.id = booking_animals.booking_id) AND (is_admin() OR (b.carrier_id = my_carrier_id()))))));
 
 -- ============================================================
 -- Views
@@ -441,11 +488,54 @@ begin
 end $function$
 ;
 
+-- Låser redigering af enkeltdyr når bookingen er afhentet (picked_up_at
+-- sat), advarer (blokerer ikke) hvis det scannede CHR ikke matcher
+-- landmandens eget registrerede CHR, og sætter created_by/updated_by/
+-- updated_at. Se CLAUDE.md.
+CREATE OR REPLACE FUNCTION public.validate_booking_animal()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  b public.bookings%rowtype;
+  f public.farmers%rowtype;
+  is_adm boolean := public.is_admin();
+begin
+  select * into b from public.bookings where id = new.booking_id;
+  if not found then
+    raise exception 'Ukendt booking.';
+  end if;
+
+  if not is_adm and b.picked_up_at is not null then
+    raise exception 'Bookingen er allerede afhentet — dyredata kan ikke længere rettes.';
+  end if;
+
+  if new.chr is not null then
+    select * into f from public.farmers where id = b.farmer_id;
+    if found and f.chr is not null and f.chr <> new.chr then
+      raise notice 'Scannet CHR (%) matcher ikke landmandens registrerede CHR (%).', new.chr, f.chr;
+    end if;
+  end if;
+
+  if tg_op = 'INSERT' then
+    new.created_by := coalesce(new.created_by, auth.uid());
+  else
+    new.updated_at := now();
+    new.updated_by := auth.uid();
+  end if;
+
+  return new;
+end $function$
+;
+
 -- ============================================================
 -- Triggers
 -- ============================================================
 
 CREATE TRIGGER trg_validate_booking BEFORE INSERT OR UPDATE ON public.bookings FOR EACH ROW EXECUTE FUNCTION validate_booking();
+CREATE TRIGGER trg_validate_booking_animal BEFORE INSERT OR UPDATE ON public.booking_animals FOR EACH ROW EXECUTE FUNCTION validate_booking_animal();
 
 -- ============================================================
 -- Event triggers

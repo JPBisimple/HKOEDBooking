@@ -78,6 +78,7 @@
   .t-GODKENDT{background:var(--warm);border-color:var(--green)}
   .t-AFVENTER_GODKENDELSE{background:var(--cream);border-color:var(--gold)}
   .t-AFVIST,.t-ANNULLERET{background:rgba(214,209,202,.08);border-color:var(--line);color:var(--muted)}
+  .t-warn{background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
   .legend i{display:inline-block;width:12px;height:12px;border:1px solid var(--line);vertical-align:-2px;margin-right:4px}
   .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
@@ -613,7 +614,7 @@ async function renderList(){
   const el = $('v-list');
   const from = todayStr(), to = fmt(addDays(new Date(),60));
   const { data,error } = await sb.from('bookings')
-    .select('*, carriers(name), farmers(name)')
+    .select('*, carriers(name), farmers(name, chr, address, zip_code, city)')
     .gte('booking_date',from).lte('booking_date',to)
     .order('booking_date').order('start_time');
   if(error){ el.innerHTML = `<div class="panel err">${msg(error)}</div>`; return; }
@@ -631,7 +632,8 @@ async function renderList(){
         ${isAdmin()?`<button class="btn sec" data-edit="${r.id}">Ret</button>
                      <button class="btn danger" data-del="${r.id}">Slet</button>`:''}
         ${['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
-          ? `<button class="btn sec" data-cancel="${r.id}">Annullér</button>`:''}
+          ? `<button class="btn sec" data-animals="${r.id}">Dyr/CHR</button>
+             <button class="btn sec" data-cancel="${r.id}">Annullér</button>`:''}
       </td></tr>`).join('')}
     </table>${rows.length?'':'<p style="color:var(--muted)">Ingen bookinger.</p>'}</div>`;
   wireRowActions(el, rows, renderList);
@@ -644,6 +646,9 @@ function wireRowActions(el, rows, refresh){
     if(!confirm('Bekræft prebookingen som endelig booking?')) return;
     const { error } = await sb.from('bookings').update({type:'BOOKING'}).eq('id',b.dataset.confirm);
     error ? alert(msg(error)) : refresh();
+  });
+  el.querySelectorAll('[data-animals]').forEach(b => b.onclick = () => {
+    animalsModal(rows.find(x=>x.id===b.dataset.animals));
   });
   el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
     if(!confirm('Annullér bookingen?')) return;
@@ -664,7 +669,7 @@ function wireRowActions(el, rows, refresh){
 // ---------- ADMINISTRATION ----------
 async function renderAdmin(){
   const el = $('v-admin');
-  const { data } = await sb.from('bookings').select('*, carriers(name), farmers(name)')
+  const { data } = await sb.from('bookings').select('*, carriers(name), farmers(name, chr, address, zip_code, city)')
     .eq('status','AFVENTER_GODKENDELSE').order('booking_date').order('start_time');
   const pend = data||[];
   const yr = new Date().getFullYear();
@@ -679,6 +684,7 @@ async function renderAdmin(){
         <td style="white-space:nowrap">
           <button class="btn" data-ok="${r.id}">Godkend</button>
           <button class="btn sec" data-edit="${r.id}">Ret</button>
+          <button class="btn sec" data-animals="${r.id}">Dyr/CHR</button>
           <button class="btn danger" data-no="${r.id}">Afvis</button></td></tr>`).join('')}
       </table>`:'<p style="color:var(--muted)">Ingen forespørgsler afventer.</p>'}
   </div>
@@ -733,6 +739,9 @@ async function renderAdmin(){
     const r = pend.find(x=>x.id===b.dataset.edit);
     bookingModal(r.booking_date, hhmm(r.start_time), r);
   });
+  el.querySelectorAll('[data-animals]').forEach(b => b.onclick = () => {
+    animalsModal(pend.find(x=>x.id===b.dataset.animals));
+  });
   $('hol-gen').onclick = async () => {
     const { data,error } = await sb.rpc('sync_dk_holidays',{from_year:yr,to_year:yr+1});
     if(error) return alert(msg(error));
@@ -760,6 +769,235 @@ async function renderAdmin(){
     if(error) return alert(msg(error));
     await loadMaster(); renderAdmin();
   };
+}
+
+// ---------- DYR / CHR (grundlag for den lovpligtige køreseddel) ----------
+// Rækkefølge matcher den fysiske køreseddel (Ko, Kalv, Kvie, Stude, Tyr).
+const CATS = [['KO','Ko'],['KALV','Kalv'],['KVIE','Kvie'],['STUD','Stude'],['TYR','Tyr']];
+const catLabel = c => ({KO:'Ko',KVIE:'Kvie',TYR:'Tyr',STUD:'Stude',KALV:'Kalv'}[c] || c);
+const dtFmt = iso => { if(!iso) return ''; const d = new Date(iso); return `${dk(fmt(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
+// EID fra øremærket, fx "208 005914700404": landekode 208 (ikke brugt endnu
+// - til fremtidigt SEGES-opslag) + 12-cifret krop. Første 7 cifre = CHR,
+// sidste 5 = individnummer ("0059147-00404"). Se CLAUDE.md.
+function parseEid(raw){
+  const s = (raw||'').trim();
+  const digits = s.replace(/\D/g,'');
+  if(digits.length < 12) return { eid: s||null, chr:null, animalNo:null };
+  const body = digits.slice(-12);
+  return { eid: s, chr: body.slice(0,7), animalNo: body.slice(7) };
+}
+
+// Stavens CSV-eksport: "EID;VID;Date;Time;QAMark". VID bruges ikke.
+function parseWandCsv(text){
+  return text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l && !l.toUpperCase().startsWith('EID;')).map(line=>{
+    const parts = line.split(';');
+    const eid = (parts[0]||'').trim();
+    const dateStr = parts[2], timeStr = parts[3], qa = parts[4];
+    const { chr, animalNo } = parseEid(eid);
+    let scanned_at = null;
+    if(dateStr && timeStr){
+      const [y,mo,da] = dateStr.split('-').map(Number);
+      const [hh,mi,ss] = timeStr.split('.').map(Number);
+      if(y && mo && da) scanned_at = new Date(y,mo-1,da,hh||0,mi||0,ss||0).toISOString();
+    }
+    return { eid: eid||null, chr, animal_no: animalNo, qa_mark: parseInt(qa,10)===3?3:2, scanned_at };
+  }).filter(r=>r.eid);
+}
+
+async function animalsModal(booking){
+  let animals = [];
+  const locked = () => !!booking.picked_up_at && !isAdmin();
+
+  const load = async () => {
+    const { data } = await sb.from('booking_animals').select('*').eq('booking_id', booking.id).order('created_at');
+    animals = data||[];
+  };
+
+  const render = () => {
+    const editable = !locked();
+    $('modal-root').innerHTML = `<div class="overlay"><div class="modal" style="max-width:760px">
+      <h2>Dyr / CHR – ${esc(booking.carriers?.name||'')} · ${esc(booking.farmers?.name||'')}</h2>
+      <div class="hint">${dk(booking.booking_date)} · ${hhmm(booking.start_time)}–${hhmm(booking.end_time)} · ${booking.animal_count} dyr booket · ${animals.length} registreret</div>
+      ${booking.picked_up_at ? `<div class="hint">Afhentet ${dtFmt(booking.picked_up_at)}${!editable?' – låst for redigering':''}</div>` : ''}
+      <table style="margin-top:10px"><tr><th>Kategori</th><th>CHR</th><th>EID</th><th>QA</th><th>Læsset</th><th>Bemærkning</th><th></th></tr>
+        ${animals.map(a=>`<tr>
+          <td>${catLabel(a.category)}</td>
+          <td>${a.chr ? esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):'') : '<span class="tag t-warn">Mangler CHR</span>'}</td>
+          <td style="font-size:11px">${esc(a.eid||'')}</td>
+          <td>${a.qa_mark===3?'Returdyr':'Standard'}</td>
+          <td>${a.loaded_at ? dtFmt(a.loaded_at) : (editable?`<button class="btn sec" data-load="${a.id}">Marker</button>`:'–')}</td>
+          <td>${esc(a.remarks||'')}</td>
+          <td style="white-space:nowrap">${editable?`<button class="btn sec" data-editanimal="${a.id}">Ret</button> <button class="btn danger" data-delanimal="${a.id}">Slet</button>`:''}</td>
+        </tr>`).join('')}
+      </table>
+      ${animals.length?'':'<p style="color:var(--muted)">Ingen dyr registreret endnu.</p>'}
+
+      ${editable?`
+      <h2 style="margin-top:18px">Tilføj / ret dyr</h2>
+      <div class="row">
+        <div><label>Kategori</label><select id="a-cat">${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
+        <div><label>EID (øremærke)</label><input id="a-eid" placeholder="208 005914700404"></div>
+        <div><label>CHR</label><input id="a-chr" placeholder="0059147"></div>
+        <div><label>QA-mærke</label><select id="a-qa"><option value="2">Standard</option><option value="3">Returdyr</option></select></div>
+      </div>
+      <label>Bemærkning</label><input id="a-remarks">
+      <p><button class="btn" id="a-add">Tilføj dyr</button> <button class="btn sec hide" id="a-cancel-edit">Fortryd</button></p>
+
+      <h2>Upload fra stav</h2>
+      <div class="row">
+        <div><label>Kategori for filen</label><select id="w-cat">${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
+        <div><label>CSV-fil</label><input id="w-file" type="file" accept=".csv,text/csv"></div>
+        <div style="flex:0;align-self:end"><button class="btn sec" id="w-upload">Upload</button></div>
+      </div>
+      <div class="hint">Forventet format: <code>EID;VID;Date;Time;QAMark</code>. CHR udledes automatisk af EID. Allerede registrerede øremærker springes over.</div>
+      <div id="a-err" class="err hide"></div>`:''}
+
+      <p style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+        ${!booking.picked_up_at ? `<button class="btn" id="a-pickup">Bekræft afhentning</button>` : ''}
+        <button class="btn sec" id="a-print">Udskriv køreseddel</button>
+        <button class="btn sec" id="a-close">Luk</button>
+      </p>
+    </div></div>`;
+
+    $('a-close').onclick = () => $('modal-root').innerHTML='';
+    $('a-print').onclick = () => printKoreseddel(booking, animals);
+
+    if(editable){
+      $('a-eid').oninput = () => {
+        const { chr } = parseEid($('a-eid').value);
+        if(chr) $('a-chr').value = chr;
+      };
+      const resetForm = () => {
+        $('a-cat').value='KO'; $('a-eid').value=''; $('a-chr').value=''; $('a-qa').value='2'; $('a-remarks').value='';
+        $('a-add').textContent = 'Tilføj dyr';
+        $('a-cancel-edit').classList.add('hide');
+        $('a-add').onclick = addHandler;
+      };
+      const addHandler = async () => {
+        const eidVal = $('a-eid').value.trim();
+        const parsed = parseEid(eidVal);
+        const row = {
+          booking_id: booking.id, category: $('a-cat').value,
+          eid: eidVal || null,
+          chr: $('a-chr').value.trim() || parsed.chr || null,
+          animal_no: parsed.animalNo,
+          qa_mark: parseInt($('a-qa').value,10),
+          remarks: $('a-remarks').value.trim() || null,
+          source: 'MANUAL'
+        };
+        const { error } = await sb.from('booking_animals').insert(row);
+        if(error) return showAErr(msg(error));
+        await load(); render();
+      };
+      $('a-add').onclick = addHandler;
+      $('a-cancel-edit').onclick = resetForm;
+
+      $('w-upload').onclick = async () => {
+        const file = $('w-file').files[0];
+        if(!file) return showAErr('Vælg en fil.');
+        const text = await file.text();
+        const cat = $('w-cat').value;
+        const rows = parseWandCsv(text).map(r => ({...r, booking_id: booking.id, category: cat, source:'WAND_UPLOAD'}));
+        if(!rows.length) return showAErr('Ingen gyldige linjer fundet i filen.');
+        const { error } = await sb.from('booking_animals').upsert(rows, {onConflict:'eid', ignoreDuplicates:true});
+        if(error) return showAErr(msg(error));
+        await load(); render();
+      };
+
+      document.querySelectorAll('[data-editanimal]').forEach(b => b.onclick = () => {
+        const a = animals.find(x=>x.id===b.dataset.editanimal);
+        if(!a) return;
+        $('a-cat').value = a.category; $('a-eid').value = a.eid||''; $('a-chr').value = a.chr||'';
+        $('a-qa').value = String(a.qa_mark); $('a-remarks').value = a.remarks||'';
+        $('a-add').textContent = 'Gem ændring';
+        $('a-cancel-edit').classList.remove('hide');
+        $('a-add').onclick = async () => {
+          const parsed = parseEid($('a-eid').value.trim());
+          const row = {
+            category: $('a-cat').value,
+            eid: $('a-eid').value.trim() || null,
+            chr: $('a-chr').value.trim() || parsed.chr || null,
+            animal_no: parsed.animalNo || a.animal_no || null,
+            qa_mark: parseInt($('a-qa').value,10),
+            remarks: $('a-remarks').value.trim() || null
+          };
+          const { error } = await sb.from('booking_animals').update(row).eq('id', a.id);
+          if(error) return showAErr(msg(error));
+          await load(); render();
+        };
+      });
+      document.querySelectorAll('[data-load]').forEach(b => b.onclick = async () => {
+        const { error } = await sb.from('booking_animals').update({loaded_at:new Date().toISOString()}).eq('id',b.dataset.load);
+        if(error) return alert(msg(error));
+        await load(); render();
+      });
+      document.querySelectorAll('[data-delanimal]').forEach(b => b.onclick = async () => {
+        if(!confirm('Slet dette dyr fra listen?')) return;
+        const { error } = await sb.from('booking_animals').delete().eq('id',b.dataset.delanimal);
+        if(error) return alert(msg(error));
+        await load(); render();
+      });
+    }
+    if(!booking.picked_up_at){
+      $('a-pickup').onclick = async () => {
+        if(!confirm('Bekræft at bookingen er afhentet? Dyredata kan herefter ikke længere rettes.')) return;
+        const { error } = await sb.from('bookings').update({picked_up_at:new Date().toISOString()}).eq('id',booking.id);
+        if(error) return alert(msg(error));
+        const { data } = await sb.from('bookings').select('*, carriers(name), farmers(name, chr, address, zip_code, city)').eq('id',booking.id).single();
+        if(data) Object.assign(booking, data);
+        render();
+      };
+    }
+  };
+  function showAErr(m){ $('a-err').textContent=m; $('a-err').classList.remove('hide'); }
+
+  await load();
+  render();
+}
+
+// Printvenlig køreseddel — myndighedskrav. Genereres i et separat vindue
+// via browserens eget print (ingen ny afhængighed, ingen PDF-bibliotek).
+function printKoreseddel(booking, animals){
+  const f = booking.farmers || {};
+  const addrText = esc([f.name, f.address, [f.zip_code, f.city].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+  const win = window.open('', '_blank', 'width=1000,height=700');
+  if(!win){ alert('Pop-up blokeret – tillad pop-ups for denne side for at udskrive køresedlen.'); return; }
+  const rows = animals.map((a,i)=>`<tr>
+    <td>${i+1}</td>
+    <td>${addrText}</td>
+    <td>${esc(f.chr||'')}</td>
+    <td>${a.chr?esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):''):''}</td>
+    ${CATS.map(([c])=>`<td style="text-align:center">${a.category===c?'✓':''}</td>`).join('')}
+    <td>${esc(a.salmonella_status||'')}</td>
+    <td>${a.loaded_at?dtFmt(a.loaded_at):''}</td>
+    <td>${esc(a.remarks||'')}</td>
+  </tr>`).join('');
+  win.document.write(`<!DOCTYPE html><html lang="da"><head><meta charset="utf-8"><title>Køreseddel – ${esc(f.name||'')}</title>
+  <style>
+    body{font:12px/1.4 system-ui,Segoe UI,Roboto,sans-serif;margin:20px;color:#111}
+    table{border-collapse:collapse;width:100%;margin-top:12px}
+    th,td{border:1px solid #333;padding:4px 6px;font-size:11px}
+    th{background:#1A3C34;color:#fff}
+    .hdr{display:flex;justify-content:space-between;border:1px solid #333;padding:8px;gap:16px;flex-wrap:wrap}
+    .hdr div{min-width:150px}
+    .foot{margin-top:10px;font-size:11px;color:#333}
+  </style></head><body>
+  <div class="hdr">
+    <div><b>Dato:</b> ${dk(booking.booking_date)}<br><b>Forventet ankomst kl.:</b> ${hhmm(booking.start_time)}<br><b>Ankomst kl.:</b> ${booking.arrived_at?dtFmt(booking.arrived_at):''}</div>
+    <div><b>Vognmand:</b><br>${esc(booking.carriers?.name||'')}</div>
+    <div><b>Chauffør:</b><br>${esc(booking.driver_name||'')}</div>
+    <div><b>Registreringsnummer</b><br>Forvogn: ${esc(booking.truck_plate||'')}<br>Anhænger: ${esc(booking.trailer_plate||'')}</div>
+    <div>Himmerlandskød A/S<br>Nordre Ringvej 99, 9620 Aalestrup<br>CHR-nr: 133182 · Tlf. 98 64 14 44</div>
+  </div>
+  <table><tr><th></th><th>Navn og adresse</th><th>CHR-nr.</th><th>CKR-dyrenr.</th>
+    ${CATS.map(([,lbl])=>`<th>${lbl}</th>`).join('')}
+    <th>Salmonellastatus</th><th>Læssetidspunkt</th><th>Bemærkninger</th></tr>
+  ${rows}</table>
+  <p class="foot">Udskrevet ${dk(todayStr())} fra Dyremodtagelse – Himmerlandskød.</p>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  win.document.close();
 }
 
 // ---------- diverse ----------
