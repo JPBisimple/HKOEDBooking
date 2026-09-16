@@ -146,6 +146,7 @@ ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_pkey PRIMARY K
 ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE;
 ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_qa_mark_check CHECK ((qa_mark = ANY (ARRAY[2, 3])));
 ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_source_check CHECK ((source = ANY (ARRAY['MANUAL'::text, 'WAND_UPLOAD'::text])));
+ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_eid_key UNIQUE (eid);
 ALTER TABLE public.carriers ADD CONSTRAINT carriers_name_key UNIQUE (name);
 ALTER TABLE public.carriers ADD CONSTRAINT carriers_pkey PRIMARY KEY (id);
 ALTER TABLE public.profiles ADD CONSTRAINT chk_carrier_has_company CHECK (((role <> 'carrier'::app_role) OR (carrier_id IS NOT NULL)));
@@ -179,7 +180,7 @@ CREATE UNIQUE INDEX farmers_supplier_no_key ON public.farmers USING btree (suppl
 CREATE UNIQUE INDEX settings_pkey ON public.settings USING btree (id);
 CREATE UNIQUE INDEX profiles_pkey ON public.profiles USING btree (id);
 CREATE UNIQUE INDEX booking_animals_pkey ON public.booking_animals USING btree (id);
-CREATE UNIQUE INDEX booking_animals_eid_key ON public.booking_animals USING btree (eid) WHERE (eid IS NOT NULL);
+CREATE UNIQUE INDEX booking_animals_eid_key ON public.booking_animals USING btree (eid);
 CREATE INDEX idx_booking_animals_booking ON public.booking_animals USING btree (booking_id);
 
 -- ============================================================

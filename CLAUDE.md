@@ -219,9 +219,13 @@ de sidste 5 er `animal_no` ("0059147-00404" = CHR 0059147, dyr 00404).
 Ved manuel indtastning må CHR gerne tastes uden foranstillede nuller.
 `VID`-kolonnen i filen er tom og bruges ikke.
 
-`UNIQUE(eid)` (partiel, kun hvor `eid IS NOT NULL`) — et øremærke er unikt
-pr. dyr, så samme EID på to bookinger er enten en fejlscanning eller en
-reel fejl.
+`UNIQUE(eid)` — et øremærke er unikt pr. dyr, så samme EID på to
+bookinger er enten en fejlscanning eller en reel fejl. Almindeligt
+(ikke partielt) constraint: Postgres udelukker altid NULL fra sig selv
+i et unikt indeks, så flere dyr uden EID er stadig tilladt — og kun et
+almindeligt constraint kan bruges som `ON CONFLICT`-mål af
+`upsert()`/PostgREST (et partielt indeks kræver, at forespørgslen
+selv gentager `WHERE`-betingelsen, hvilket klientens `upsert()` ikke gør).
 
 **Salmonellastatus hentes fra SEGES via API — ikke bygget endnu.** Feltet
 står tomt indtil da; udfyldes ikke automatisk eller manuelt.
