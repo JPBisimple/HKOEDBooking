@@ -822,7 +822,7 @@ async function animalsModal(booking){
       ${booking.picked_up_at ? `<div class="hint">Afhentet ${dtFmt(booking.picked_up_at)}${!editable?' – låst for redigering':''}</div>` : ''}
       <table style="margin-top:10px"><tr><th>Kategori</th><th>CHR</th><th>EID</th><th>QA</th><th>Læsset</th><th>Bemærkning</th><th></th></tr>
         ${animals.map(a=>`<tr>
-          <td>${catLabel(a.category)}</td>
+          <td>${a.category ? catLabel(a.category) : '<span class="tag t-warn">Mangler kategori</span>'}</td>
           <td>${a.chr ? esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):'') : '<span class="tag t-warn">Mangler CHR</span>'}</td>
           <td style="font-size:11px">${esc(a.eid||'')}</td>
           <td>${a.qa_mark===3?'Returdyr':'Standard'}</td>
@@ -836,7 +836,7 @@ async function animalsModal(booking){
       ${editable?`
       <h2 style="margin-top:18px">Tilføj / ret dyr</h2>
       <div class="row">
-        <div><label>Kategori</label><select id="a-cat">${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
+        <div><label>Kategori</label><select id="a-cat"><option value="">Ukendt (hentes fra SEGES)</option>${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
         <div><label>EID (øremærke)</label><input id="a-eid" placeholder="208 005914700404"></div>
         <div><label>CHR</label><input id="a-chr" placeholder="0059147"></div>
         <div><label>QA-mærke</label><select id="a-qa"><option value="2">Standard</option><option value="3">Returdyr</option></select></div>
@@ -846,11 +846,10 @@ async function animalsModal(booking){
 
       <h2>Upload fra stav</h2>
       <div class="row">
-        <div><label>Kategori for filen</label><select id="w-cat">${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
         <div><label>CSV-fil</label><input id="w-file" type="file" accept=".csv,text/csv"></div>
         <div style="flex:0;align-self:end"><button class="btn sec" id="w-upload">Upload</button></div>
       </div>
-      <div class="hint">Forventet format: <code>EID;VID;Date;Time;QAMark</code>. CHR udledes automatisk af EID. Allerede registrerede øremærker springes over.</div>
+      <div class="hint">Forventet format: <code>EID;VID;Date;Time;QAMark</code>. CHR udledes automatisk af EID. En fil kan indeholde flere kategorier — kategori pr. dyr hentes senere fra SEGES og er tom indtil da. Allerede registrerede øremærker springes over.</div>
       <div id="a-err" class="err hide"></div>`:''}
 
       <p style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
@@ -869,7 +868,7 @@ async function animalsModal(booking){
         if(chr) $('a-chr').value = chr;
       };
       const resetForm = () => {
-        $('a-cat').value='KO'; $('a-eid').value=''; $('a-chr').value=''; $('a-qa').value='2'; $('a-remarks').value='';
+        $('a-cat').value=''; $('a-eid').value=''; $('a-chr').value=''; $('a-qa').value='2'; $('a-remarks').value='';
         $('a-add').textContent = 'Tilføj dyr';
         $('a-cancel-edit').classList.add('hide');
         $('a-add').onclick = addHandler;
@@ -878,7 +877,7 @@ async function animalsModal(booking){
         const eidVal = $('a-eid').value.trim();
         const parsed = parseEid(eidVal);
         const row = {
-          booking_id: booking.id, category: $('a-cat').value,
+          booking_id: booking.id, category: $('a-cat').value || null,
           eid: eidVal || null,
           chr: $('a-chr').value.trim() || parsed.chr || null,
           animal_no: parsed.animalNo,
@@ -897,8 +896,7 @@ async function animalsModal(booking){
         const file = $('w-file').files[0];
         if(!file) return showAErr('Vælg en fil.');
         const text = await file.text();
-        const cat = $('w-cat').value;
-        const rows = parseWandCsv(text).map(r => ({...r, booking_id: booking.id, category: cat, source:'WAND_UPLOAD'}));
+        const rows = parseWandCsv(text).map(r => ({...r, booking_id: booking.id, source:'WAND_UPLOAD'}));
         if(!rows.length) return showAErr('Ingen gyldige linjer fundet i filen.');
         const { error } = await sb.from('booking_animals').upsert(rows, {onConflict:'eid', ignoreDuplicates:true});
         if(error) return showAErr(msg(error));
@@ -908,14 +906,14 @@ async function animalsModal(booking){
       document.querySelectorAll('[data-editanimal]').forEach(b => b.onclick = () => {
         const a = animals.find(x=>x.id===b.dataset.editanimal);
         if(!a) return;
-        $('a-cat').value = a.category; $('a-eid').value = a.eid||''; $('a-chr').value = a.chr||'';
+        $('a-cat').value = a.category || ''; $('a-eid').value = a.eid||''; $('a-chr').value = a.chr||'';
         $('a-qa').value = String(a.qa_mark); $('a-remarks').value = a.remarks||'';
         $('a-add').textContent = 'Gem ændring';
         $('a-cancel-edit').classList.remove('hide');
         $('a-add').onclick = async () => {
           const parsed = parseEid($('a-eid').value.trim());
           const row = {
-            category: $('a-cat').value,
+            category: $('a-cat').value || null,
             eid: $('a-eid').value.trim() || null,
             chr: $('a-chr').value.trim() || parsed.chr || null,
             animal_no: parsed.animalNo || a.animal_no || null,

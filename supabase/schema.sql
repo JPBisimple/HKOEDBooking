@@ -62,7 +62,7 @@ CREATE TABLE public.bookings (
 CREATE TABLE public.booking_animals (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   booking_id uuid NOT NULL,
-  category animal_category NOT NULL,
+  category animal_category,
   eid text,
   chr text,
   animal_no text,

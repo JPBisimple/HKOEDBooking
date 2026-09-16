@@ -206,6 +206,12 @@ når landmandsdelen findes — helt frem til bookingen er afhentet.
 er sat (admin er undtaget). Det er **ikke** obligatorisk at udfylde CHR
 før afhentning, men UI'et skal tydeligt markere dyr, hvor det mangler.
 
+`category` er ikke obligatorisk: en fil fra staven kan indeholde flere
+kategorier i samme upload, og kategori pr. dyr skal senere hentes fra
+SEGES via API (ikke bygget endnu) i stedet for at blive valgt manuelt
+ved upload. Ved manuel indtastning af ét dyr angives kategori stadig
+direkte.
+
 **EID-parsing** (fra stavens CSV-eksport, `EID;VID;Date;Time;QAMark`):
 `eid` = "208 005914700404" → landekode `208` (bruges ikke endnu — til
 fremtidigt SEGES-opslag), + 12-cifret krop. De første 7 cifre er `chr`,
