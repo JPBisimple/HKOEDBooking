@@ -101,6 +101,18 @@
   .stepper input:focus{outline:2px solid var(--gold);outline-offset:-2px}
   .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .stepper input[type=number]{-moz-appearance:textfield}
+  .switch{position:relative;display:inline-block;width:34px;height:20px;flex:0 0 auto;vertical-align:middle}
+  .switch input{opacity:0;width:0;height:0}
+  .switch .slider{position:absolute;inset:0;background:rgba(214,209,202,.25);border-radius:20px;transition:.15s}
+  .switch .slider:before{content:"";position:absolute;height:14px;width:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+  .switch input:checked+.slider{background:var(--gold)}
+  .switch input:checked+.slider:before{transform:translateX(14px)}
+  .switch input:disabled+.slider{opacity:.6;cursor:not-allowed}
+  .toggle-field{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .toggle-field .lbl{font-size:12px;color:var(--muted)}
+  .placeholder-cell{color:var(--muted);font-style:italic}
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  .toolbar .spacer{flex:1}
   #login{max-width:360px;margin:80px auto}
   #whoami{color:var(--muted)}
   .logo{height:34px;width:auto;display:block}
@@ -816,35 +828,56 @@ async function animalsModal(booking){
 
   const render = () => {
     const editable = !locked();
-    $('modal-root').innerHTML = `<div class="overlay"><div class="modal" style="max-width:760px">
+    const segesPlaceholder = '<span class="placeholder-cell" title="Afventer SEGES-integration – ikke bygget endnu">–</span>';
+    $('modal-root').innerHTML = `<div class="overlay"><div class="modal" style="max-width:1100px">
       <h2>Dyr / CHR – ${esc(booking.carriers?.name||'')} · ${esc(booking.farmers?.name||'')}</h2>
-      <div class="hint">${dk(booking.booking_date)} · ${hhmm(booking.start_time)}–${hhmm(booking.end_time)} · ${booking.animal_count} dyr booket · ${animals.length} registreret</div>
+      <div class="hint">${dk(booking.booking_date)} · ${hhmm(booking.start_time)}–${hhmm(booking.end_time)} · ${booking.animal_count} dyr booket</div>
       ${booking.picked_up_at ? `<div class="hint">Afhentet ${dtFmt(booking.picked_up_at)}${!editable?' – låst for redigering':''}</div>` : ''}
-      <table style="margin-top:10px"><tr><th>Kategori</th><th>CHR</th><th>EID</th><th>QA</th><th>Læsset</th><th>Bemærkning</th><th></th></tr>
+
+      ${editable?`
+      <div class="toolbar" style="align-items:flex-end">
+        <div class="toggle-field">
+          <label class="switch"><input type="checkbox" id="a-nocheck" checked disabled><span class="slider"></span></label>
+          <span class="lbl" title="SEGES-tjek er ikke tilsluttet endnu — alle dyr registreres uden check">Uden check</span>
+        </div>
+        <div><label>Kategori</label><select id="a-cat"><option value="">Ukendt (SEGES)</option>${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
+        <div><label>QA-mærke</label><select id="a-qa"><option value="2">Standard</option><option value="3">Returdyr</option></select></div>
+        <div><label>Originalt CHR</label><input id="a-chr" placeholder="0059147" value="${esc(booking.farmers?.chr||'')}"></div>
+        <div><label>CKR</label><input id="a-animalno" placeholder="00404"></div>
+        <div><label>CKR-dyrenr.</label><input id="a-ckrfull" disabled></div>
+        <button class="btn sec" id="a-search" disabled title="SEGES-opslag er ikke tilsluttet endnu">Søg</button>
+      </div>
+      <label>Bemærkning</label><input id="a-remarks">
+      <p><button class="btn" id="a-add">Tilføj dyr</button> <button class="btn sec hide" id="a-cancel-edit">Fortryd</button></p>`:''}
+
+      <div class="toolbar">
+        <h2 style="margin:0">Resultater (${animals.length})</h2>
+        <div class="spacer"></div>
+        <button class="btn sec" id="a-export">Eksportér CSV</button>
+        ${editable && animals.length ? `<button class="btn danger" id="a-clearall">Ryd alle</button>`:''}
+      </div>
+      <div style="overflow-x:auto">
+      <table><tr><th>CHR+CKR</th><th>Leverandør</th><th>Kategori</th><th>QA-mærke</th><th>Alder (mdr.)</th><th>Salmonella</th><th>Veterinær status</th><th>Fødevare status</th><th>Må slagtes</th><th>Læsset</th><th>Bemærkning</th><th></th></tr>
         ${animals.map(a=>`<tr>
+          <td title="EID: ${esc(a.eid||'ingen')}">${a.chr ? esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):'') : '<span class="tag t-warn">Mangler CHR</span>'}</td>
+          <td>${esc(booking.farmers?.name||'')}</td>
           <td>${a.category ? catLabel(a.category) : '<span class="tag t-warn">Mangler kategori</span>'}</td>
-          <td>${a.chr ? esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):'') : '<span class="tag t-warn">Mangler CHR</span>'}</td>
-          <td style="font-size:11px">${esc(a.eid||'')}</td>
           <td>${a.qa_mark===3?'Returdyr':'Standard'}</td>
+          <td>${segesPlaceholder}</td>
+          <td>${segesPlaceholder}</td>
+          <td>${segesPlaceholder}</td>
+          <td>${segesPlaceholder}</td>
+          <td>${segesPlaceholder}</td>
           <td>${a.loaded_at ? dtFmt(a.loaded_at) : (editable?`<button class="btn sec" data-load="${a.id}">Marker</button>`:'–')}</td>
           <td>${esc(a.remarks||'')}</td>
           <td style="white-space:nowrap">${editable?`<button class="btn sec" data-editanimal="${a.id}">Ret</button> <button class="btn danger" data-delanimal="${a.id}">Slet</button>`:''}</td>
         </tr>`).join('')}
       </table>
+      </div>
       ${animals.length?'':'<p style="color:var(--muted)">Ingen dyr registreret endnu.</p>'}
 
       ${editable?`
-      <h2 style="margin-top:18px">Tilføj / ret dyr</h2>
-      <div class="row">
-        <div><label>Kategori</label><select id="a-cat"><option value="">Ukendt (hentes fra SEGES)</option>${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
-        <div><label>EID (øremærke)</label><input id="a-eid" placeholder="208 005914700404"></div>
-        <div><label>CHR</label><input id="a-chr" placeholder="0059147"></div>
-        <div><label>QA-mærke</label><select id="a-qa"><option value="2">Standard</option><option value="3">Returdyr</option></select></div>
-      </div>
-      <label>Bemærkning</label><input id="a-remarks">
-      <p><button class="btn" id="a-add">Tilføj dyr</button> <button class="btn sec hide" id="a-cancel-edit">Fortryd</button></p>
-
-      <h2>Upload fra stav</h2>
+      <h2 style="margin-top:18px">Upload fra stav</h2>
       <div class="row">
         <div><label>CSV-fil</label><input id="w-file" type="file" accept=".csv,text/csv"></div>
         <div style="flex:0;align-self:end"><button class="btn sec" id="w-upload">Upload</button></div>
@@ -859,28 +892,38 @@ async function animalsModal(booking){
       </p>
     </div></div>`;
 
+    $('a-export').onclick = () => exportAnimalsCsv(booking, animals);
+    if($('a-clearall')) $('a-clearall').onclick = async () => {
+      if(!confirm(`Slet alle ${animals.length} registrerede dyr for denne booking? Kan ikke fortrydes.`)) return;
+      const { error } = await sb.from('booking_animals').delete().eq('booking_id', booking.id);
+      if(error) return alert(msg(error));
+      await load(); render();
+    };
+
     $('a-close').onclick = () => $('modal-root').innerHTML='';
     $('a-print').onclick = () => printKoreseddel(booking, animals);
 
     if(editable){
-      $('a-eid').oninput = () => {
-        const { chr } = parseEid($('a-eid').value);
-        if(chr) $('a-chr').value = chr;
+      const updateCkrFull = () => {
+        const chr = $('a-chr').value.trim(), no = $('a-animalno').value.trim();
+        $('a-ckrfull').value = chr && no ? `${chr}-${no}` : (chr || no || '');
       };
+      $('a-chr').oninput = updateCkrFull;
+      $('a-animalno').oninput = updateCkrFull;
+      updateCkrFull();
+
       const resetForm = () => {
-        $('a-cat').value=''; $('a-eid').value=''; $('a-chr').value=''; $('a-qa').value='2'; $('a-remarks').value='';
+        $('a-cat').value=''; $('a-chr').value = booking.farmers?.chr||''; $('a-animalno').value=''; $('a-qa').value='2'; $('a-remarks').value='';
+        updateCkrFull();
         $('a-add').textContent = 'Tilføj dyr';
         $('a-cancel-edit').classList.add('hide');
         $('a-add').onclick = addHandler;
       };
       const addHandler = async () => {
-        const eidVal = $('a-eid').value.trim();
-        const parsed = parseEid(eidVal);
         const row = {
           booking_id: booking.id, category: $('a-cat').value || null,
-          eid: eidVal || null,
-          chr: $('a-chr').value.trim() || parsed.chr || null,
-          animal_no: parsed.animalNo,
+          chr: $('a-chr').value.trim() || null,
+          animal_no: $('a-animalno').value.trim() || null,
           qa_mark: parseInt($('a-qa').value,10),
           remarks: $('a-remarks').value.trim() || null,
           source: 'MANUAL'
@@ -906,17 +949,16 @@ async function animalsModal(booking){
       document.querySelectorAll('[data-editanimal]').forEach(b => b.onclick = () => {
         const a = animals.find(x=>x.id===b.dataset.editanimal);
         if(!a) return;
-        $('a-cat').value = a.category || ''; $('a-eid').value = a.eid||''; $('a-chr').value = a.chr||'';
+        $('a-cat').value = a.category || ''; $('a-chr').value = a.chr||''; $('a-animalno').value = a.animal_no||'';
         $('a-qa').value = String(a.qa_mark); $('a-remarks').value = a.remarks||'';
+        updateCkrFull();
         $('a-add').textContent = 'Gem ændring';
         $('a-cancel-edit').classList.remove('hide');
         $('a-add').onclick = async () => {
-          const parsed = parseEid($('a-eid').value.trim());
           const row = {
             category: $('a-cat').value || null,
-            eid: $('a-eid').value.trim() || null,
-            chr: $('a-chr').value.trim() || parsed.chr || null,
-            animal_no: parsed.animalNo || a.animal_no || null,
+            chr: $('a-chr').value.trim() || null,
+            animal_no: $('a-animalno').value.trim() || null,
             qa_mark: parseInt($('a-qa').value,10),
             remarks: $('a-remarks').value.trim() || null
           };
@@ -952,6 +994,27 @@ async function animalsModal(booking){
 
   await load();
   render();
+}
+
+// CSV-eksport af den aktuelle dyrliste. Kolonner der afventer
+// SEGES-integrationen (alder, salmonella, veterinær-/fødevarestatus,
+// må slagtes) eksporteres tomme, ligesom i tabellen.
+function exportAnimalsCsv(booking, animals){
+  const csvEsc = s => `"${(s??'').toString().replace(/"/g,'""')}"`;
+  const header = ['CHR','CKR','EID','Leverandør','Kategori','QA-mærke','Alder (mdr.)',
+    'Salmonella','Veterinær status','Fødevare status','Må slagtes','Læssetidspunkt','Bemærkning'];
+  const lines = animals.map(a => [
+    a.chr||'', a.animal_no||'', a.eid||'', booking.farmers?.name||'',
+    a.category?catLabel(a.category):'', a.qa_mark===3?'Returdyr':'Standard',
+    '', '', '', '', '', a.loaded_at?dtFmt(a.loaded_at):'', a.remarks||''
+  ].map(csvEsc).join(';'));
+  const csv = [header.map(csvEsc).join(';'), ...lines].join('\r\n');
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `dyr_${booking.booking_date}_${(booking.carriers?.name||'').replace(/\W+/g,'_')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // Printvenlig køreseddel — myndighedskrav. Genereres i et separat vindue

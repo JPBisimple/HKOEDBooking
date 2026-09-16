@@ -43,6 +43,15 @@ Nye tabeller i `public` får automatisk RLS slået til (event trigger
 `ensure_rls`, som kalder funktionen `rls_auto_enable()`). RLS uden policies
 betyder **ingen adgang** — husk at skrive policies, ellers virker intet.
 
+**RLS-auto-enable slår ikke GRANT til.** Policies bestemmer kun hvilke
+*rækker* en rolle må røre — rollen skal *også* have de grundlæggende
+SQL-rettigheder på selve tabellen (`GRANT SELECT, INSERT, UPDATE, DELETE
+ON <tabel> TO authenticated`). De eksisterende tabeller fik det ved
+projektets oprindelige opsætning; en helt ny tabel oprettet via migration
+gør det ikke automatisk. Mangler grant, fejler det som en RLS-afvisning
+(`42501`, samme fejlkode og klientbesked som en policy-afvisning) — de
+kan ikke skelnes fra UI'et. Se `booking_animals` for eksemplet.
+
 `anon` har ingen læse- eller skriverettigheder. Det skal forblive sådan.
 
 ### Kendte svagheder — ret dem, når landmandsdelen bygges
@@ -212,12 +221,20 @@ SEGES via API (ikke bygget endnu) i stedet for at blive valgt manuelt
 ved upload. Ved manuel indtastning af ét dyr angives kategori stadig
 direkte.
 
-**EID-parsing** (fra stavens CSV-eksport, `EID;VID;Date;Time;QAMark`):
-`eid` = "208 005914700404" → landekode `208` (bruges ikke endnu — til
-fremtidigt SEGES-opslag), + 12-cifret krop. De første 7 cifre er `chr`,
-de sidste 5 er `animal_no` ("0059147-00404" = CHR 0059147, dyr 00404).
-Ved manuel indtastning må CHR gerne tastes uden foranstillede nuller.
-`VID`-kolonnen i filen er tom og bruges ikke.
+**To forskellige indtastningsveje ind til `chr`/`animal_no`:**
+
+- **Manuel indtastning:** to felter, "Originalt CHR" (`chr`) og "CKR"
+  (`animal_no`), plus et beregnet skrivebeskyttet "CKR-dyrenr."-felt
+  (`chr`-`animal_no`). Landekoden (208) tastes aldrig — den kommer kun
+  fra EID og er ikke relevant ved manuel indtastning. `chr` forudfyldes
+  fra landmandens egen stamdata (`booking.farmers.chr`), da dyret
+  normalt kommer fra den gård, bookingen gælder — redigerbar, hvis det
+  undtagelsesvis er forkert.
+- **Upload fra stav** (CSV-eksport, `EID;VID;Date;Time;QAMark`): `eid` =
+  "208 005914700404" → landekode `208` (bruges ikke endnu — til
+  fremtidigt SEGES-opslag) + 12-cifret krop, hvor de første 7 cifre er
+  `chr` og de sidste 5 er `animal_no` ("0059147-00404" = CHR 0059147,
+  dyr 00404). `VID`-kolonnen i filen er tom og bruges ikke.
 
 `UNIQUE(eid)` — et øremærke er unikt pr. dyr, så samme EID på to
 bookinger er enten en fejlscanning eller en reel fejl. Almindeligt
@@ -229,6 +246,16 @@ selv gentager `WHERE`-betingelsen, hvilket klientens `upsert()` ikke gør).
 
 **Salmonellastatus hentes fra SEGES via API — ikke bygget endnu.** Feltet
 står tomt indtil da; udfyldes ikke automatisk eller manuelt.
+
+**Dyr/CHR-skærmen** (`animalsModal` i `index.html`) er lagt op efter samme
+mønster som det eksterne "CattleReg"-værktøj (indtastningslinje øverst,
+resultattabel nedenunder), men i appens eget mørke tema. Alder, Salmonella,
+veterinær- og fødevarestatus og "Må slagtes" er kolonner i tabellen, der
+viser en tom placeholder, indtil SEGES-integrationen findes — de er **ikke**
+felter, der kan udfyldes manuelt. "Uden check"-toggle og "Søg"-knap er
+bevidst deaktiverede: der findes endnu ikke et "med check"-flow at slå
+fra/til, så de er kun visuel forberedelse til SEGES-opslaget. CSV-eksport
+og "Ryd alle" er lokale hjælpefunktioner, ikke afhængige af SEGES.
 
 **Køreseddel:** myndighedskrav. Udskrives fra `booking_animals` +
 bookingens/landmandens stamdata: landmandens navn/adresse/CHR
