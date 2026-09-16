@@ -644,7 +644,7 @@ async function renderList(){
         ${isAdmin()?`<button class="btn sec" data-edit="${r.id}">Ret</button>
                      <button class="btn danger" data-del="${r.id}">Slet</button>`:''}
         ${['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
-          ? `<button class="btn sec" data-animals="${r.id}">Dyr/CHR</button>
+          ? `<button class="btn sec" data-animals="${r.id}">Registrer dyr</button>
              <button class="btn sec" data-cancel="${r.id}">Annullér</button>`:''}
       </td></tr>`).join('')}
     </table>${rows.length?'':'<p style="color:var(--muted)">Ingen bookinger.</p>'}</div>`;
@@ -696,7 +696,7 @@ async function renderAdmin(){
         <td style="white-space:nowrap">
           <button class="btn" data-ok="${r.id}">Godkend</button>
           <button class="btn sec" data-edit="${r.id}">Ret</button>
-          <button class="btn sec" data-animals="${r.id}">Dyr/CHR</button>
+          <button class="btn sec" data-animals="${r.id}">Registrer dyr</button>
           <button class="btn danger" data-no="${r.id}">Afvis</button></td></tr>`).join('')}
       </table>`:'<p style="color:var(--muted)">Ingen forespørgsler afventer.</p>'}
   </div>
