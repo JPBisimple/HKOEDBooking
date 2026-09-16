@@ -91,6 +91,15 @@
   .row>div{flex:1;min-width:130px}
   .hint{font-size:12px;color:var(--muted);margin-top:4px}
   .hide{display:none}
+  .cat-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0}
+  .cat-row .cat-label{color:var(--ink);font-size:14px}
+  .stepper{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:190px;flex:0 0 auto}
+  .stepper button{flex:0 0 42px;background:rgba(214,209,202,.14);color:var(--ink);border:0;font-size:18px;font-weight:600;line-height:1;cursor:pointer}
+  .stepper button:hover{background:rgba(214,209,202,.26)}
+  .stepper input{flex:1;min-width:0;text-align:center;background:#fff;color:var(--on-light);border:0;border-radius:0;font-weight:700;font-size:15px;padding:8px 4px}
+  .stepper input:focus{outline:2px solid var(--gold);outline-offset:-2px}
+  .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .stepper input[type=number]{-moz-appearance:textfield}
   #login{max-width:360px;margin:80px auto}
   #whoami{color:var(--muted)}
   .logo{height:34px;width:auto;display:block}
@@ -463,13 +472,14 @@ async function bookingModal(ds, t, existing, preset){
       <div><label>Antal slots à ${S.settings.slot_minutes} min.</label><select id="f-slots"></select></div>
     </div>
     <label>Dyr pr. kategori</label>
-    <div class="row">
-      <div><label>Ko</label><input id="f-ko" type="number" min="0" step="1" value="0"></div>
-      <div><label>Kvie</label><input id="f-kvie" type="number" min="0" step="1" value="0"></div>
-      <div><label>Tyr</label><input id="f-tyr" type="number" min="0" step="1" value="0"></div>
-      <div><label>Stud</label><input id="f-stud" type="number" min="0" step="1" value="0"></div>
-      <div><label>Kalv</label><input id="f-kalv" type="number" min="0" step="1" value="0"></div>
-    </div>
+    ${[['ko','Ko'],['kvie','Kvie'],['tyr','Tyr'],['stud','Stud'],['kalv','Kalv']].map(([id,lbl])=>`
+    <div class="cat-row"><span class="cat-label">${lbl}</span>
+      <div class="stepper">
+        <button type="button" data-cat="${id}" data-step="-1">−</button>
+        <input id="f-${id}" type="number" min="0" step="1" value="0">
+        <button type="button" data-cat="${id}" data-step="1">+</button>
+      </div>
+    </div>`).join('')}
     <div class="hint" id="f-cap"></div>
     <label>Type</label>
     <select id="f-type">
@@ -556,6 +566,11 @@ async function bookingModal(ds, t, existing, preset){
   if($('f-start')) $('f-start').onchange = buildSlots;
   $('f-slots').onchange = buildSlots;
   catIds.forEach(c => $('f-'+c).oninput = updateCap);
+  document.querySelectorAll('#modal-root .stepper button').forEach(btn => btn.onclick = () => {
+    const inp = $('f-'+btn.dataset.cat);
+    inp.value = Math.max(0, (parseInt(inp.value,10)||0) + parseInt(btn.dataset.step,10));
+    updateCap();
+  });
   await loadDay();
 
   $('f-cancel').onclick = () => $('modal-root').innerHTML = '';
