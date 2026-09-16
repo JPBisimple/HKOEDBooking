@@ -22,7 +22,7 @@ Al klientkode er offentligt læsbar. Kun den publicerbare nøgle må ligge i
 **Al adgangskontrol ligger i databasen.** Ikke i UI'et. At en knap er skjult,
 beskytter ingenting.
 
-Vognmænd er konkurrenter. Alt hvad der ikke tilhører vognmanden selv, vises
+Transportører er konkurrenter. Alt hvad der ikke tilhører transportøren selv, vises
 som **"optaget"** — ingen navne, ingen antal, ingen CHR-numre.
 
 ### Mønsteret — følg det for nye tabeller
@@ -76,7 +76,7 @@ og `GODKENDT`), som nu regner rigtigt uanset `slot_minutes`.
 ### Fejlkoder oversat i klienten
 
 - `42501` / "row-level security" → "Du har ikke rettigheder til denne handling."
-- `23P01` (exclusion constraint) → dobbeltbooking af samme slot
+- `23P01` (exclusion constraint) → dobbeltbooking af samme interval
 
 ---
 
@@ -86,22 +86,22 @@ og `GODKENDT`), som nu regner rigtigt uanset `slot_minutes`.
 
 Landmanden melder dyr til slagtning. To indgange, samme resultat:
 
-1. **Landmanden selv i appen.** Han vælger vognmand. Har han en foretrukken
-   vognmand tilknyttet, er den forudfyldt.
+1. **Landmanden selv i appen.** Han vælger transportør. Har han en foretrukken
+   transportør tilknyttet, er den forudfyldt.
 2. **Telefon.** Mange landmænd er teknologiforskrækkede og ringer i stedet
-   til en vognmand, som taster tilmeldingen ind på deres vegne.
+   til en transportør, som taster tilmeldingen ind på deres vegne.
 
-Vognmanden skal altså kunne oprette en tilmelding for en landmand, der ikke
+Transportøren skal altså kunne oprette en tilmelding for en landmand, der ikke
 selv bruger systemet.
 
 Landmanden angiver en **ønsket afhentningsdato** ved tilmeldingen. Det er et
-ønske, ikke en aftale — vognmanden er ikke bundet af den.
+ønske, ikke en aftale — transportøren er ikke bundet af den.
 
 **Der er ingen tilmeldingsfrist.** Først til mølle.
 
 ### Booking
 
-Vognmanden planlægger. Rækkefølgen er:
+Transportøren planlægger. Rækkefølgen er:
 
 1. Han ser, hvilke slots der er ledige på slagteriet
 2. Han booker afleveringstid
@@ -109,22 +109,22 @@ Vognmanden planlægger. Rækkefølgen er:
 
 Han planlægger ruten ud fra sin egen kapacitet og sin egen geografikendskab.
 Systemet beregner ikke ruter og beregner ikke transporttid. En tilmelding kan
-derfor aldrig overstige bilens kapacitet — vognmanden styrer det selv.
+derfor aldrig overstige bilens kapacitet — transportøren styrer det selv.
 
 ### Afhentningstidspunkt
 
-**Vognmanden indtaster dato og tidspunkt manuelt pr. tilmelding.** Systemet
+**Transportøren indtaster dato og tidspunkt manuelt pr. tilmelding.** Systemet
 udleder det ikke og beregner ikke ruter.
 
 To adskilte felter, som aldrig må overskrive hinanden:
 
-- **Ønsket dato** — sat af landmanden ved tilmelding. Vognmanden kan ikke ændre den.
-- **Aftalt dato og tidspunkt** — sat af vognmanden. Tom indtil han har planlagt.
+- **Ønsket dato** — sat af landmanden ved tilmelding. Transportøren kan ikke ændre den.
+- **Aftalt dato og tidspunkt** — sat af transportøren. Tom indtil han har planlagt.
 
 Landmanden skal kunne se begge, så han kan se, om ønsket blev imødekommet,
 eller om der bare ikke er planlagt endnu.
 
-**Vognmanden giver selv landmanden besked** — telefon, SMS, uden for
+**Transportøren giver selv landmanden besked** — telefon, SMS, uden for
 systemet. Appen sender ingen notifikationer og skal ikke bygges til det.
 Den er opslagsstedet, ikke beskedkanalen.
 
@@ -133,7 +133,7 @@ Den er opslagsstedet, ikke beskedkanalen.
 En tilmelding har **ingen godkendelsesstatus**. Den er data, der venter på at
 komme med en bil. Administrationen godkender bookinger — ikke tilmeldinger.
 
-### Hvad vognmanden må
+### Hvad transportøren må
 
 - Ser og redigerer kun egne tilmeldinger
 - Kan rette dem, indtil de er koblet til en godkendt booking. Derefter er
@@ -151,13 +151,13 @@ Kun booking-delen findes. Tilmelding er ikke bygget.
 | Rolle | Kilde | Kan |
 |---|---|---|
 | `admin` | `profiles.role = 'admin'` | Alt: godkende, afvise, rette, slette, ændre indstillinger |
-| Vognmand | alt andet end `admin` | Sende forespørgsler, se og annullere egne |
+| Transportør | alt andet end `admin` | Sende forespørgsler, se og annullere egne |
 
 Rolle hentes fra `profiles` ved login. Uden profilrække nægtes adgang.
 Login er e-mail + password (`signInWithPassword`).
 
 **Landmænd er i dag data, ikke brugere.** `farmers` er en fast liste, som
-vognmanden vælger fra. Ingen landmandsrolle, intet landmands-UI.
+transportøren vælger fra. Ingen landmandsrolle, intet landmands-UI.
 
 ### Datamodel
 
@@ -194,8 +194,8 @@ generated-kolonne, før den er beregnet, og kapacitetstjekket i samme
 trigger har brug for summen med det samme.
 
 `driver_name`/`truck_plate`/`trailer_plate`/`arrived_at` udfyldes af
-vognmanden ved afhentning (chauffør og køretøj kan variere pr. tur).
-`picked_up_at` sættes når vognmanden bekræfter afhentning — det låser
+transportøren ved afhentning (chauffør og køretøj kan variere pr. tur).
+`picked_up_at` sættes når transportøren bekræfter afhentning — det låser
 `booking_animals` for videre redigering (se nedenfor), uafhængigt af
 `status`. "Forventet ankomst kl." er allerede `start_time`; der er ikke
 brug for et separat felt til det.
@@ -209,7 +209,7 @@ dyr og den lovpligtige "køreseddel" kræver data pr. enkeltdyr:
 (køresedlens "Læssetidspunkt"), `salmonella_status`, `remarks`, `source`
 (`MANUAL`/`WAND_UPLOAD`).
 
-Dyr/CHR kan indtastes eller indlæses af vognmanden — og senere landmanden,
+Dyr/CHR kan indtastes eller indlæses af transportøren — og senere landmanden,
 når landmandsdelen findes — helt frem til bookingen er afhentet.
 `validate_booking_animal` blokerer al redigering, når `bookings.picked_up_at`
 er sat (admin er undtaget). Det er **ikke** obligatorisk at udfylde CHR
@@ -271,11 +271,23 @@ formål — endnu ikke udfyldt for de eksisterende landmænd.
 <!-- UDFYLD: fulde kolonnedefinitioner og constraints -->
 
 **Status:** `AFVENTER_GODKENDELSE` → `GODKENDT` | `AFVIST` | `ANNULLERET`
-Administration opretter direkte som `GODKENDT`. Vognmænd opretter altid som
-`AFVENTER_GODKENDELSE`. En afventende booking blokerer slottet.
+Administration opretter direkte som `GODKENDT`. Transportører opretter altid som
+`AFVENTER_GODKENDELSE`. En afventende booking blokerer intervallet. Vises i
+UI'et som "Afventer slagteri" (`statusTxt()` i `index.html`).
+
+**En transportørs rettelse af en godkendt booking sender den tilbage til
+`AFVENTER_GODKENDELSE`.** Håndhæves i `validate_booking`: `tg_op = 'UPDATE'
+and not is_adm and old.status = 'GODKENDT' and new.status = 'GODKENDT'` →
+status nulstilles. Gælder enhver rettelse fra en transportør — inkl.
+"Bekræft booking" (prebooking → booking), hvor status tidligere altid
+blev bevaret uændret. Rammer ikke en eksplicit annullering (transportøren
+sætter selv status til `ANNULLERET`), og rammer ikke admins egne
+rettelser, da admin allerede har godkendelsesret.
 
 **Type:** `PREBOOKING` og `BOOKING`. Prebooking kan bekræftes til booking;
-status bevares, fordi slot og kapacitet allerede er reserveret.
+slot og kapacitet er allerede reserveret, så selve typeskiftet kræver
+ikke ny kapacitetstildeling — men status følger reglen ovenfor, hvis
+bookingen var godkendt og det er en transportør, der bekræfter.
 
 ### Kapacitet
 
@@ -292,11 +304,33 @@ Ligger i `settings`-tabellen og ændres i UI'et — **hardkod aldrig tallene**:
   slot og ved `max_slots_per_booking`
 - `pending_counts_in_capacity` styrer, om afventende bookinger tæller med i
   dagsloftet
-- Kun admin kan sætte `capacity_override` og dermed bryde dagsloftet
+- Kun admin kan sætte `capacity_override` og dermed bryde både dagsloftet
+  og loftet pr. interval (`max_animals_per_slot × slot_count`). Checkboksen
+  i bookingformularen ("Tillad at overskride kapacitet") er kun synlig for
+  admin og sætter feltet — uden den er der ingen vej til at sætte
+  `capacity_override` fra UI'et.
 
 Alt dette håndhæves i `validate_booking`, ikke kun i klienten. Dagsloftet
 låses med `pg_advisory_xact_lock` pr. dato, så to samtidige bookinger ikke
 kan snige sig forbi.
+
+`slot` i skemaet (`slot_count`, `max_animals_per_slot`, `max_slots_per_booking`)
+er den tekniske betegnelse i databasen. UI'et kalder det samme begreb
+"interval"/"intervaller" i al brugervendt tekst — kolonnenavnene er ikke
+omdøbt.
+
+### Fysiske porte — udskudt, ikke bygget
+
+Modtagelsen har 7 fysiske porte. Teoretisk kan der derfor modtages op til
+7× kapaciteten pr. interval samtidig, hvis alle porte bruges — i dag har
+systemet kun ét samlet loft pr. interval (`max_animals_per_slot`), som om
+der kun var én port. Én af de 7 porte er reserveret (fx til staldkøer),
+men reglen for hvilken og hvornår er ikke afklaret endnu (Henrik mangler
+at fastlægge det). **Byg ikke en portmodel, før det er afklaret** — en
+tildeling af booking til port, med kapacitet og dobbeltbooking-tjek
+(`bookings_no_overlap`) omregnet til at være pr. port, er en større
+ændring, og en forhastet regel for den reserverede port vil sandsynligvis
+skulle laves om.
 
 ---
 
@@ -318,7 +352,7 @@ Landmandsdelen. Ikke besluttet endnu:
 
 - Login for landmænd
 - Tabel for tilmeldinger: felter og kobling til `bookings`
-  (flere tilmeldinger pr. booking — vognmanden fylder bilen fra flere gårde)
+  (flere tilmeldinger pr. booking — transportøren fylder bilen fra flere gårde)
 
 ## Sprog
 

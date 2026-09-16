@@ -165,7 +165,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const sb = createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY);
 
 const S = { profile:null, settings:null, carriers:[], farmers:[], closed:new Set(),
-            weekStart:null, cal:[], view:'dash' };
+            weekStart:null, cal:[], view:'dash', dashShowClosed:true };
 const DAYS = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag'];
 const isAdmin = () => S.profile?.role === 'admin';
 const $ = id => document.getElementById(id);
@@ -193,7 +193,7 @@ const isOpenDay = ds => { const d=parse(ds); return d.getDay()>=1 && d.getDay()<
 
 function msg(e){
   if(!e) return '';
-  if(e.code === '23P01') return 'Et eller flere af de valgte slots er allerede optaget. Opdatér kalenderen og prøv igen.';
+  if(e.code === '23P01') return 'Et eller flere af de valgte intervaller er allerede optaget. Opdatér kalenderen og prøv igen.';
   if(e.code === '42501' || (e.message||'').includes('row-level security'))
     return 'Du har ikke rettigheder til denne handling.';
   return e.message || String(e);
@@ -223,7 +223,7 @@ async function start(session){
   }
   S.profile = prof;
   $('login').classList.add('hide'); $('app').classList.remove('hide');
-  $('whoami').textContent = `${session.user.email} (${isAdmin()?'Administrator':'Vognmand'})`;
+  $('whoami').textContent = `${session.user.email} (${isAdmin()?'Administrator':'Transportør'})`;
   $('nav-admin').classList.toggle('hide', !isAdmin());
   await loadMaster();
   S.weekStart = monday(new Date());
@@ -276,14 +276,15 @@ async function renderDash(){
   const td = daily[today];
   const todayTotal = td ? td.animals_approved + td.animals_pending : 0;
 
-  const days = [];
+  let days = [];
   for(let i=0;i<14;i++){
     const ds = fmt(addDays(new Date(),i)), d = daily[ds];
     days.push({ ds, open:isOpenDay(ds), appr:d?d.animals_approved:0, pend:d?d.animals_pending:0 });
   }
+  if(!S.dashShowClosed) days = days.filter(d=>d.open);
   const peak = Math.max(max, ...days.map(d=>d.appr+d.pend)) * 1.12;
   const W=1080,H=260,PADL=46,PADB=42,PADT=12;
-  const bw=(W-PADL-10)/14, y=v=>PADT+(H-PADT-PADB)*(1-v/peak);
+  const bw=(W-PADL-10)/Math.max(1,days.length), y=v=>PADT+(H-PADT-PADB)*(1-v/peak);
   const bars = days.map((d,i)=>{
     const x=PADL+i*bw+4, w=bw-8, tot=d.appr+d.pend;
     if(!d.open) return `<rect x="${x}" y="${PADT}" width="${w}" height="${H-PADT-PADB}" fill="rgba(214,209,202,.05)"/>`;
@@ -308,7 +309,7 @@ async function renderDash(){
       <div><b>${rows.length?hhmm(rows[rows.length-1].end_time):'–'}</b><span>sidste afgang</span></div>
       <div><b>${Math.max(0,max-todayTotal)}</b><span>ledig kapacitet af ${max}</span></div>
     </div>
-    ${rows.length?`<table style="margin-top:14px"><tr><th>Tid</th><th>Vognmand</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th></tr>
+    ${rows.length?`<table style="margin-top:14px"><tr><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th></tr>
       ${rows.map(r=>`<tr>
         <td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
         <td>${esc(r.carrier_label)}</td><td>${esc(r.farmer_label||'')}</td>
@@ -318,7 +319,12 @@ async function renderDash(){
   </div>
 
   <div class="panel">
-    <h2>14 dage frem – antal dyr pr. dag</h2>
+    <div class="row" style="align-items:center;margin-bottom:0">
+      <h2 style="flex:1">14 dage frem – antal dyr pr. dag</h2>
+      <label style="flex:0;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
+        <input type="checkbox" id="dash-showclosed" style="width:auto" ${S.dashShowClosed?'checked':''}>
+        Vis weekend og helligdage</label>
+    </div>
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
       <line x1="${PADL}" y1="${H-PADB}" x2="${W-6}" y2="${H-PADB}" stroke="rgba(214,209,202,.25)"/>
       <line x1="${PADL}" y1="${y(max)}" x2="${W-6}" y2="${y(max)}" stroke="#D89A90" stroke-width="1.5" stroke-dasharray="6 4"/>
@@ -331,9 +337,10 @@ async function renderDash(){
       <span><i style="background:#006E63"></i>Godkendt</span>
       <span><i style="background:#85754E"></i>Afventer godkendelse</span>
       <span><i style="background:#8C3A30"></i>Over dagsloft</span>
-      <span><i style="background:rgba(214,209,202,.10)"></i>Lukket (weekend/helligdag)</span>
+      ${S.dashShowClosed?'<span><i style="background:rgba(214,209,202,.10)"></i>Lukket (weekend/helligdag)</span>':''}
     </div>
   </div>`;
+  $('dash-showclosed').onchange = () => { S.dashShowClosed = $('dash-showclosed').checked; renderDash(); };
 }
 
 // ---------- KALENDER ----------
@@ -361,15 +368,15 @@ async function renderCal(){
         const n = b.slot_count;
         const pos = (toMin(t)-toMin(hhmm(b.start_time)))/S.settings.slot_minutes + 1;
         const span = `${hhmm(b.start_time)}–${hhmm(b.end_time)}`;
-        const title = n>1 ? `${span} · ${n} slots` : span;
+        const title = n>1 ? `${span} · ${n} intervaller` : span;
         if(b.is_own){
           grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}" title="${title}">
             ${first
-              ? `<b>${esc(b.carrier_label)}</b>${n>1?` <span style="font-weight:400">(${n} slots, ${span})</span>`:''}<br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer)':''}`
+              ? `<b>${esc(b.carrier_label)}</b>${n>1?` <span style="font-weight:400">(${n} intervaller, ${span})</span>`:''}<br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer slagteri)':''}`
               : `<span class="more">↳ ${esc(b.carrier_label)}, ${pos} af ${n}</span>`}</div>`;
         } else {
           grid += `<div class="cell busy ${first?'':'cont'}" title="${title}">
-            ${first ? `Optaget${n>1?` (${n} slots, ${span})`:''}` : `<span class="more">↳ optaget, ${pos} af ${n}</span>`}</div>`;
+            ${first ? `Optaget${n>1?` (${n} intervaller, ${span})`:''}` : `<span class="more">↳ optaget, ${pos} af ${n}</span>`}</div>`;
         }
       } else if(past || !isOpenDay(ds)){
         grid += `<div class="cell disabled"></div>`;
@@ -391,9 +398,9 @@ async function renderCal(){
       <span><i style="background:var(--warm);border-color:var(--green)"></i>Egen godkendt booking</span>
       <span><i style="background:var(--cream);border-color:var(--gold)"></i>Egen afventende</span>
       <span><i style="background:var(--cream);border-color:var(--gold);background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 4px,transparent 4px 8px)"></i>Prebooking (skraveret)</span>
-      <span><i style="background:var(--greige)"></i>Optaget af anden vognmand</span>
+      <span><i style="background:var(--greige)"></i>Optaget af anden transportør</span>
       <span><i style="background:rgba(0,0,0,.22)"></i>Lukket / passeret</span>
-      <span>Klik på et ledigt slot, eller træk hen over flere i samme dag for at booke dem samlet.</span>
+      <span>Klik på et ledigt interval, eller træk hen over flere i samme dag for at booke dem samlet.</span>
     </div>
   </div>`;
   $('wk-prev').onclick = () => { S.weekStart=addDays(S.weekStart,-7); renderCal(); };
@@ -473,7 +480,7 @@ async function bookingModal(ds, t, existing, preset){
     <h2>${existing ? 'Ret booking' : (isAdmin()?'Ny booking':'Ny bookingforespørgsel')}</h2>
     <div class="hint" id="f-day"></div>
     ${canMove ? `<label>Dato</label><input type="date" id="f-date" value="${ds}">` : ''}
-    <label>Vognmand</label>
+    <label>Transportør</label>
     <select id="f-car" ${myCarrier?'disabled':''}>
       ${carriers.map(c=>`<option value="${c.id}" ${c.id===(existing?.carrier_id||myCarrier)?'selected':''}>${esc(c.name)}</option>`).join('')}
     </select>
@@ -482,7 +489,7 @@ async function bookingModal(ds, t, existing, preset){
       `<option value="${f.id}" ${f.id===existing?.farmer_id?'selected':''}>${esc(f.name)}</option>`).join('')}</select>
     <div class="row">
       ${canMove ? `<div><label>Starttid</label><select id="f-start"></select></div>` : ''}
-      <div><label>Antal slots à ${S.settings.slot_minutes} min.</label><select id="f-slots"></select></div>
+      <div><label>Antal intervaller à ${S.settings.slot_minutes} min.</label><select id="f-slots"></select></div>
     </div>
     <label>Dyr pr. kategori</label>
     ${[['ko','Ko'],['kvie','Kvie'],['tyr','Tyr'],['stud','Stud'],['kalv','Kalv']].map(([id,lbl])=>`
@@ -494,6 +501,9 @@ async function bookingModal(ds, t, existing, preset){
       </div>
     </div>`).join('')}
     <div class="hint" id="f-cap"></div>
+    ${isAdmin() ? `<label style="display:flex;align-items:center;gap:6px;margin-top:10px">
+      <input type="checkbox" id="f-override" style="width:auto" ${existing?.capacity_override?'checked':''}>
+      Tillad at overskride kapacitet pr. interval/dag (admin)</label>` : ''}
     <label>Type</label>
     <select id="f-type">
       <option value="BOOKING">Booking (bekræftet)</option>
@@ -539,12 +549,12 @@ async function bookingModal(ds, t, existing, preset){
       `<option value="${i+1}">${i+1} (${st}–${endOf(st,(i+1)*S.settings.slot_minutes)})</option>`).join('');
     $('f-slots').value = String(Math.min(want, max));
     updateCap();
-    if(want > max) showErr(`Der er kun plads til ${max} slot(s) fra ${st}.`);
+    if(want > max) showErr(`Der er kun plads til ${max} interval(ler) fra ${st}.`);
   };
 
   const updateCap = () => {
     const n = parseInt($('f-slots').value,10) * perSlot;
-    $('f-cap').textContent = `${catTotal()} dyr valgt · maks. ${perSlot} dyr pr. slot – ${n} dyr med det valgte antal slots.`;
+    $('f-cap').textContent = `${catTotal()} dyr valgt · maks. ${perSlot} dyr pr. interval – ${n} dyr med det valgte antal intervaller.`;
   };
 
   const buildStart = () => {
@@ -592,9 +602,10 @@ async function bookingModal(ds, t, existing, preset){
     const animals = catIds.reduce((sum,c) => sum + counts[c], 0);
     const nSlots  = parseInt($('f-slots').value,10);
     const start   = $('f-start') ? $('f-start').value : t;
+    const override = isAdmin() && !!$('f-override')?.checked;
     if(!(animals>0)) return showErr('Angiv mindst ét dyr, fordelt på kategori.');
-    if(animals > nSlots*perSlot)
-      return showErr(`${animals} dyr kræver mindst ${Math.ceil(animals/perSlot)} slots (maks ${perSlot} dyr pr. slot).`);
+    if(animals > nSlots*perSlot && !override)
+      return showErr(`${animals} dyr kræver mindst ${Math.ceil(animals/perSlot)} intervaller (maks ${perSlot} dyr pr. interval).`);
     if(!$('f-far').value) return showErr('Vælg landmand.');
     const row = {
       booking_date: day, start_time: start+':00', slot_count: nSlots,
@@ -602,7 +613,8 @@ async function bookingModal(ds, t, existing, preset){
       farmer_id: $('f-far').value,
       n_ko: counts.ko, n_kvie: counts.kvie, n_tyr: counts.tyr, n_stud: counts.stud, n_kalv: counts.kalv,
       type: $('f-type').value,
-      note: $('f-note').value.trim() || null
+      note: $('f-note').value.trim() || null,
+      capacity_override: override
     };
     $('f-save').disabled = true;
     let error;
@@ -632,7 +644,7 @@ async function renderList(){
   if(error){ el.innerHTML = `<div class="panel err">${msg(error)}</div>`; return; }
   const rows = data||[];
   el.innerHTML = `<div class="panel"><h2>${isAdmin()?'Alle bookinger':'Mine bookinger'} (60 dage frem)</h2>
-    <table><tr><th>Dato</th><th>Tid</th><th>Vognmand</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th></th></tr>
+    <table><tr><th>Dato</th><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th></th></tr>
     ${rows.map(r=>`<tr>
       <td>${dk(r.booking_date)}</td><td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
       <td>${esc(r.carriers?.name)}</td><td>${esc(r.farmers?.name)}</td>
@@ -652,8 +664,10 @@ async function renderList(){
 }
 
 function wireRowActions(el, rows, refresh){
-  // Prebooking -> Booking. Statussen bevares: slot og kapacitet er allerede
-  // reserveret, og bekræftelsen ændrer kun forpligtelsen, ikke leverancen.
+  // Prebooking -> Booking. Interval og kapacitet er allerede reserveret,
+  // så selve typeskiftet kræver ikke ny kapacitetstildeling — men
+  // validate_booking sender en godkendt booking tilbage til "Afventer
+  // slagteri", hvis det er en transportør (ikke admin), der bekræfter.
   el.querySelectorAll('[data-confirm]').forEach(b => b.onclick = async () => {
     if(!confirm('Bekræft prebookingen som endelig booking?')) return;
     const { error } = await sb.from('bookings').update({type:'BOOKING'}).eq('id',b.dataset.confirm);
@@ -688,7 +702,7 @@ async function renderAdmin(){
   el.innerHTML = `
   <div class="panel">
     <h2>Forespørgsler til godkendelse (${pend.length})</h2>
-    ${pend.length?`<table><tr><th>Dato</th><th>Tid</th><th>Vognmand</th><th>Landmand</th><th>Dyr</th><th>Type</th><th></th></tr>
+    ${pend.length?`<table><tr><th>Dato</th><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th></th></tr>
       ${pend.map(r=>`<tr>
         <td>${dk(r.booking_date)}</td><td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
         <td>${esc(r.carriers?.name)}</td><td>${esc(r.farmers?.name)}</td>
@@ -723,17 +737,17 @@ async function renderAdmin(){
     <h2>Kapacitet</h2>
     <div class="row">
       <div><label>Maks. dyr pr. dag</label><input type="number" id="st-max" value="${S.settings.max_animals_per_day}"></div>
-      <div><label>Maks. dyr pr. slot</label><input type="number" id="st-slot" value="${S.settings.max_animals_per_slot}"></div>
-      <div><label>Maks. slots pr. booking</label><input type="number" id="st-slots" value="${S.settings.max_slots_per_booking}"></div>
+      <div><label>Maks. dyr pr. interval</label><input type="number" id="st-slot" value="${S.settings.max_animals_per_slot}"></div>
+      <div><label>Maks. intervaller pr. booking</label><input type="number" id="st-slots" value="${S.settings.max_slots_per_booking}"></div>
       <div style="flex:0"><button class="btn" id="st-save">Gem</button></div>
     </div>
     <p class="hint">Teoretisk dagsmaksimum med de nuværende værdier:
-      ${slotList().length} slots × ${S.settings.max_animals_per_slot} dyr =
+      ${slotList().length} intervaller × ${S.settings.max_animals_per_slot} dyr =
       <b>${slotList().length*S.settings.max_animals_per_slot} dyr</b>.
       Dagsloftet på ${S.settings.max_animals_per_day} dyr kan derfor
       ${slotList().length*S.settings.max_animals_per_slot < S.settings.max_animals_per_day
         ? 'ikke nås med én modtagelinje.' : 'nås.'}</p>
-    <p class="hint">Vognmænd, landmænd og brugerprofiler oprettes i Supabase Studio
+    <p class="hint">Transportører, landmænd og brugerprofiler oprettes i Supabase Studio
       (tabellerne <code>carriers</code>, <code>farmers</code>, <code>profiles</code>).</p>
   </div>`;
 
@@ -1046,7 +1060,7 @@ function printKoreseddel(booking, animals){
   </style></head><body>
   <div class="hdr">
     <div><b>Dato:</b> ${dk(booking.booking_date)}<br><b>Forventet ankomst kl.:</b> ${hhmm(booking.start_time)}<br><b>Ankomst kl.:</b> ${booking.arrived_at?dtFmt(booking.arrived_at):''}</div>
-    <div><b>Vognmand:</b><br>${esc(booking.carriers?.name||'')}</div>
+    <div><b>Transportør:</b><br>${esc(booking.carriers?.name||'')}</div>
     <div><b>Chauffør:</b><br>${esc(booking.driver_name||'')}</div>
     <div><b>Registreringsnummer</b><br>Forvogn: ${esc(booking.truck_plate||'')}<br>Anhænger: ${esc(booking.trailer_plate||'')}</div>
     <div>Himmerlandskød A/S<br>Nordre Ringvej 99, 9620 Aalestrup<br>CHR-nr: 133182 · Tlf. 98 64 14 44</div>
@@ -1063,7 +1077,7 @@ function printKoreseddel(booking, animals){
 
 // ---------- diverse ----------
 function statusTxt(s){
-  return {GODKENDT:'Godkendt',AFVENTER_GODKENDELSE:'Afventer',AFVIST:'Afvist',ANNULLERET:'Annulleret'}[s]||s;
+  return {GODKENDT:'Godkendt',AFVENTER_GODKENDELSE:'Afventer slagteri',AFVIST:'Afvist',ANNULLERET:'Annulleret'}[s]||s;
 }
 function esc(s){ return (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 

@@ -412,6 +412,10 @@ begin
   new.animal_count := coalesce(new.n_ko,0) + coalesce(new.n_kvie,0) + coalesce(new.n_tyr,0)
                      + coalesce(new.n_stud,0) + coalesce(new.n_kalv,0);
 
+  if tg_op = 'UPDATE' and not is_adm and old.status = 'GODKENDT' and new.status = 'GODKENDT' then
+    new.status := 'AFVENTER_GODKENDELSE';
+  end if;
+
   new.end_time := new.start_time + make_interval(mins => new.slot_count * s.slot_minutes);
   new.period := tsrange(
     (new.booking_date + new.start_time),
@@ -439,19 +443,24 @@ begin
 
     if (extract(epoch from new.start_time)::int - extract(epoch from s.opening_time)::int)
        % (s.slot_minutes * 60) <> 0 then
-      raise exception 'Starttid skal ligge på et %-minutters slot.', s.slot_minutes;
+      raise exception 'Starttid skal ligge på et %-minutters interval.', s.slot_minutes;
     end if;
 
     if new.slot_count > s.max_slots_per_booking then
-      raise exception 'Maks % sammenhængende slots pr. booking.', s.max_slots_per_booking;
+      raise exception 'Maks % sammenhængende intervaller pr. booking.', s.max_slots_per_booking;
     end if;
 
-    -- Kapacitet pr. slot
+    -- Kapacitet pr. interval — admin kan tilsidesætte med capacity_override,
+    -- ligesom dagskapaciteten nedenfor.
     if new.animal_count > new.slot_count * s.max_animals_per_slot then
-      raise exception '% dyr kræver mindst % slots (maks % dyr pr. slot).',
-        new.animal_count,
-        ceil(new.animal_count::numeric / s.max_animals_per_slot),
-        s.max_animals_per_slot;
+      if is_adm and new.capacity_override then
+        raise notice 'Kapacitet pr. interval overskredet - tilsidesat af administrator.';
+      else
+        raise exception '% dyr kræver mindst % intervaller (maks % dyr pr. interval).',
+          new.animal_count,
+          ceil(new.animal_count::numeric / s.max_animals_per_slot),
+          s.max_animals_per_slot;
+      end if;
     end if;
 
     -- Dagskapacitet
@@ -482,7 +491,7 @@ begin
   end if;
 
   if new.capacity_override and not is_adm then
-    raise exception 'Kun administrator kan tilsidesætte dagskapaciteten.';
+    raise exception 'Kun administrator kan tilsidesætte kapaciteten.';
   end if;
 
   return new;
