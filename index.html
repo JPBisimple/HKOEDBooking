@@ -204,9 +204,18 @@ $('li-btn').onclick = async () => {
 $('li-pass').addEventListener('keydown', e => { if(e.key==='Enter') $('li-btn').click(); });
 $('logout').onclick = () => sb.auth.signOut();
 
-sb.auth.onAuthStateChange((_e,session) => { session ? start(session) : showLogin(); });
+// onAuthStateChange fyrer også ved token-refresh og ved tab-fokus (Supabase
+// tjekker sessionen igen, når fanen bliver synlig) — ikke kun ved login/logout.
+// Kør kun fuld start() når der reelt ikke er en session i gang endnu, ellers
+// ville en igangværende redigering (Ret booking, Registrer dyr) blive revet
+// væk og brugeren smidt tilbage på Dashboard, hver gang fanen fik fokus igen.
+sb.auth.onAuthStateChange((_e,session) => {
+  if(!session) return showLogin();
+  if(S.profile && S.profile.id === session.user.id) return;
+  start(session);
+});
 sb.auth.getSession().then(({data}) => { data.session ? start(data.session) : showLogin(); });
-function showLogin(){ $('login').classList.remove('hide'); $('app').classList.add('hide'); }
+function showLogin(){ S.profile = null; $('login').classList.remove('hide'); $('app').classList.add('hide'); }
 
 async function start(session){
   const { data:prof } = await sb.from('profiles')
@@ -448,7 +457,8 @@ async function renderCal(){
 // egne rækker, admin ser alle) inden formularen åbnes.
 function wireCalEdit(el){
   el.querySelectorAll('.cell.own[data-b]').forEach(c => c.addEventListener('click', async () => {
-    const { data, error } = await sb.from('bookings').select('*').eq('id', c.dataset.b).single();
+    const { data, error } = await sb.from('bookings')
+      .select('*, carriers(name), farmers(name, chr, address, zip_code, city)').eq('id', c.dataset.b).single();
     if(error) return alert(msg(error));
     bookingModal(data.booking_date, hhmm(data.start_time), data);
   }));
@@ -557,6 +567,7 @@ async function bookingModal(ds, t, existing, preset){
     <div id="f-err" class="err hide"></div>
     <p style="display:flex;gap:8px;margin-top:16px">
       <button class="btn" id="f-save">${existing?'Gem ændringer':(isAdmin()?'Opret booking':'Send forespørgsel')}</button>
+      ${existing && ['AFVENTER_GODKENDELSE','GODKENDT'].includes(existing.status) ? `<button class="btn sec" id="f-animals">Registrer dyr</button>` : ''}
       <button class="btn sec" id="f-cancel">Fortryd</button>
     </p>
   </div></div>`;
@@ -642,6 +653,7 @@ async function bookingModal(ds, t, existing, preset){
   await loadDay();
 
   $('f-cancel').onclick = () => $('modal-root').innerHTML = '';
+  if($('f-animals')) $('f-animals').onclick = () => animalsModal(existing);
   $('f-save').onclick = async () => {
     const counts  = Object.fromEntries(catIds.map(c => [c, parseInt($('f-'+c).value,10)||0]));
     const animals = catIds.reduce((sum,c) => sum + counts[c], 0);
