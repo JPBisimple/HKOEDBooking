@@ -744,6 +744,8 @@ async function renderList(){
       <td style="white-space:nowrap">
         ${isAdmin()?`<button class="btn sec" data-edit="${r.id}">Ret</button>
                      <button class="btn danger" data-del="${r.id}">Slet</button>`:''}
+        ${!isAdmin() && ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
+          ? `<button class="btn sec" data-edit="${r.id}">Ret booking</button>`:''}
         ${['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
           ? `<button class="btn sec" data-animals="${r.id}">Registrer dyr</button>
              <button class="btn sec" data-cancel="${r.id}">Annullér</button>`:''}
