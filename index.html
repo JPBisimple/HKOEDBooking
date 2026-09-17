@@ -159,7 +159,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const sb = createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY);
 
 const S = { profile:null, settings:null, carriers:[], farmers:[], closed:new Set(),
-            weekStart:null, cal:[], view:'dash', dashShowClosed:true, pickupSelection:new Set() };
+            weekStart:null, dayStart:0, cal:[], view:'dash', dashShowClosed:true, pickupSelection:new Set() };
 const DAYS = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag'];
 const isAdmin = () => S.profile?.role === 'admin';
 const $ = id => document.getElementById(id);
@@ -338,6 +338,30 @@ async function renderDash(){
 }
 
 // ---------- KALENDER ----------
+// Under en breakpoint vises kun 1-2 dage ad gangen i stedet for hele
+// arbejdsugen, så kolonnerne ikke bliver uleselige på mobil. Hele ugens
+// data hentes stadig i ét kald (loadCalendar) — kun hvilke dage der
+// tegnes, afhænger af skærmbredden. S.dayStart (0-4) er hvilken dag i
+// Mon-Fre-ugen der er først synlig; ignoreres (altid 0) når alle 5 vises.
+function calDaysShown(){
+  const w = window.innerWidth;
+  return w < 480 ? 1 : w < 768 ? 2 : 5;
+}
+// Flytter det synlige vindue ±nDays dage. Løber vinduet ud over ugens
+// kant, hopper det til nabo-ugen i stedet for at vise weekend-dage.
+function shiftDayStart(dir){
+  const nDays = calDaysShown();
+  if(nDays===5){ S.weekStart = addDays(S.weekStart, dir*7); S.dayStart = 0; return; }
+  const maxStart = 5 - nDays;
+  if(dir > 0){
+    if(S.dayStart >= maxStart){ S.weekStart = addDays(S.weekStart,7); S.dayStart = 0; }
+    else S.dayStart = Math.min(S.dayStart + nDays, maxStart);
+  } else {
+    if(S.dayStart <= 0){ S.weekStart = addDays(S.weekStart,-7); S.dayStart = maxStart; }
+    else S.dayStart = Math.max(S.dayStart - nDays, 0);
+  }
+}
+
 async function renderCal(){
   const el = $('v-cal');
   const from = fmt(S.weekStart), to = fmt(addDays(S.weekStart,4));
@@ -347,15 +371,24 @@ async function renderCal(){
   const at = (ds,t) => S.cal.find(b => b.booking_date===ds
       && toMin(hhmm(b.start_time))<=toMin(t) && toMin(hhmm(b.end_time))>toMin(t));
 
-  let grid = '<div class="cal"><div class="hd"></div>';
-  for(let i=0;i<5;i++){
+  const nDays = calDaysShown();
+  const maxStart = Math.max(0, 5-nDays);
+  S.dayStart = Math.min(Math.max(S.dayStart,0), maxStart);
+  const dayIdx = Array.from({length:nDays}, (_,k) => S.dayStart+k);
+  const visFrom = fmt(addDays(S.weekStart,dayIdx[0])), visTo = fmt(addDays(S.weekStart,dayIdx[dayIdx.length-1]));
+  const rangeLabel = nDays===5
+    ? `Uge ${isoWeek(S.weekStart)} · ${dk(visFrom)} – ${dk(visTo)}`
+    : (nDays===1 ? dk(visFrom) : `${dk(visFrom)} – ${dk(visTo)}`);
+
+  let grid = `<div class="cal" style="grid-template-columns:70px repeat(${nDays},1fr)"><div class="hd"></div>`;
+  for(const i of dayIdx){
     const ds = fmt(addDays(S.weekStart,i));
     const cl = S.closedRows.find(c=>c.day===ds);
     grid += `<div class="hd ${ds===today?'today':''} ${cl?'closed':''}">${DAYS[i]}<br>${dk(ds)}${cl?'<br>'+esc(cl.reason||'Lukket'):''}</div>`;
   }
   for(const t of slots){
     grid += `<div class="tm">${t}</div>`;
-    for(let i=0;i<5;i++){
+    for(const i of dayIdx){
       const ds = fmt(addDays(S.weekStart,i)), b = at(ds,t), past = ds < today;
       if(b){
         const first = hhmm(b.start_time)===t;
@@ -386,7 +419,7 @@ async function renderCal(){
       <div style="flex:0"><button class="btn sec" id="wk-prev">← Forrige</button></div>
       <div style="flex:0"><button class="btn sec" id="wk-today">I dag</button></div>
       <div style="flex:0"><button class="btn sec" id="wk-next">Næste →</button></div>
-      <div style="flex:0;color:var(--muted);align-self:center;white-space:nowrap">Uge ${isoWeek(S.weekStart)} · ${dk(from)} – ${dk(to)}</div>
+      <div style="flex:0;color:var(--muted);align-self:center;white-space:nowrap">${rangeLabel}</div>
     </div>${grid}
     <div class="legend">
       <span><i style="background:var(--appr);border-color:var(--green)"></i>Egen godkendt booking</span>
@@ -397,9 +430,14 @@ async function renderCal(){
       <span>Klik på et ledigt interval, eller træk hen over flere i samme dag for at booke dem samlet. Klik på en egen booking for at redigere den.</span>
     </div>
   </div>`;
-  $('wk-prev').onclick = () => { S.weekStart=addDays(S.weekStart,-7); renderCal(); };
-  $('wk-next').onclick = () => { S.weekStart=addDays(S.weekStart,7);  renderCal(); };
-  $('wk-today').onclick = () => { S.weekStart=monday(new Date());     renderCal(); };
+  $('wk-prev').onclick = () => { shiftDayStart(-1); renderCal(); };
+  $('wk-next').onclick = () => { shiftDayStart(1);  renderCal(); };
+  $('wk-today').onclick = () => {
+    S.weekStart = monday(new Date());
+    const dow = (new Date().getDay()+6) % 7; // 0=man .. 6=søn
+    S.dayStart = dow <= 4 ? Math.min(dow, Math.max(0,5-calDaysShown())) : 0;
+    renderCal();
+  };
   enableRangeSelect(el, slots);
   wireCalEdit(el);
 }
@@ -1265,6 +1303,15 @@ function esc(s){ return (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<
 // Genindlæser den aktive visning hvert 60. sekund, så flere brugere ser
 // hinandens ændringer. (Ingen realtime-abonnement.)
 setInterval(() => { if(S.profile && !document.querySelector('.overlay')) setView(S.view); }, 60000);
+
+// Tegner kalenderen om ved rotation/vinduesstørrelse, så antallet af
+// synlige dage (calDaysShown) følger den nye bredde med det samme, i
+// stedet for at vente på det 60-sekunders genindlæs ovenfor.
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if(S.view==='cal' && !document.querySelector('.overlay')) renderCal(); }, 200);
+});
 </script>
 </body>
 </html>
