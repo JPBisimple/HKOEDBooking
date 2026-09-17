@@ -61,9 +61,13 @@ med `30` hardkodet (generated-kolonner kan kun referere kolonner i egen
 række, ikke slå op i `settings`). **Rettet:** kolonnerne er migreret til
 almindelige kolonner, og `validate_booking` sætter nu `new.end_time` og
 `new.period` ud fra `settings.slot_minutes` ved hver INSERT/UPDATE.
-Dobbeltbooking spærres af `bookings_no_overlap`
-(`EXCLUDE USING gist (period WITH &&)` for status `AFVENTER_GODKENDELSE`
-og `GODKENDT`), som nu regner rigtigt uanset `slot_minutes`.
+Dobbeltbooking var oprindeligt spærret af `bookings_no_overlap`
+(`EXCLUDE USING gist (period WITH &&)`), som forbød al overlap og dermed
+antog kun én samtidig booking pr. interval. **Rettet (migration
+`20260917160000_concurrent_bookings_per_slot.sql`):** fabrikken har 7
+fysiske porte, så constraint'en er droppet og erstattet af en
+samtidighedstælling i `validate_booking` mod
+`settings.max_concurrent_bookings_per_slot`. Se "Fysiske porte" nedenfor.
 
 - `farmers_read` er `true`. Alle indloggede kan læse hele leverandørlisten.
   Får landmænd login, kan hver landmand se alle andre. Skal snævres ind.
@@ -76,7 +80,6 @@ og `GODKENDT`), som nu regner rigtigt uanset `slot_minutes`.
 ### Fejlkoder oversat i klienten
 
 - `42501` / "row-level security" → "Du har ikke rettigheder til denne handling."
-- `23P01` (exclusion constraint) → dobbeltbooking af samme interval
 
 ---
 
@@ -300,45 +303,60 @@ bookingen var godkendt og det er en transportør, der bekræfter.
 ### Kapacitet
 
 Ligger i `settings`-tabellen og ændres i UI'et — **hardkod aldrig tallene**:
-`max_animals_per_day`, `max_animals_per_slot`, `max_slots_per_booking`,
-`slot_minutes`, `opening_time`, `closing_time`
+`max_animals_per_day`, `max_animals_per_slot`, `max_concurrent_bookings_per_slot`,
+`max_slots_per_booking`, `slot_minutes`, `opening_time`, `closing_time`
 
 - Kun mandag–fredag
 - Helligdage lukkes via `closed_days`, fyldt af `sync_dk_holidays`.
   Store bededag er afskaffet fra 2024. 1. maj, grundlovsdag, juleaftensdag
   og nytårsaftensdag er ikke helligdage og tilføjes manuelt.
 - Antal dyr afgør mindste antal slots: `ceil(dyr / max_animals_per_slot)`
-- Markering hen over flere slots stopper ved første optagne eller lukkede
-  slot og ved `max_slots_per_booking`
+  — `max_animals_per_slot` er kapaciteten *pr. booking* (pr. transportør),
+  ikke pr. interval som helhed. Se "Fysiske porte" for det samlede loft.
+- Op til `max_concurrent_bookings_per_slot` bookinger (fra forskellige
+  transportører) kan overlappe samme interval samtidig — se "Fysiske porte".
+- Markering hen over flere slots stopper ved første fyldte eller lukkede
+  slot og ved `max_slots_per_booking`. "Fyldt" betyder her, at intervallet
+  allerede har `max_concurrent_bookings_per_slot` samtidige bookinger.
 - `pending_counts_in_capacity` styrer, om afventende bookinger tæller med i
   dagsloftet
-- Kun admin kan sætte `capacity_override` og dermed bryde både dagsloftet
-  og loftet pr. interval (`max_animals_per_slot × slot_count`). Checkboksen
-  i bookingformularen ("Tillad at overskride kapacitet") er kun synlig for
-  admin og sætter feltet — uden den er der ingen vej til at sætte
-  `capacity_override` fra UI'et.
+- Kun admin kan sætte `capacity_override` og dermed bryde dagsloftet,
+  loftet pr. booking (`max_animals_per_slot × slot_count`) og antallet af
+  samtidige bookinger pr. interval (`max_concurrent_bookings_per_slot`).
+  Checkboksen i bookingformularen ("Tillad at overskride kapacitet") er
+  kun synlig for admin og sætter feltet — uden den er der ingen vej til at
+  sætte `capacity_override` fra UI'et.
 
 Alt dette håndhæves i `validate_booking`, ikke kun i klienten. Dagsloftet
-låses med `pg_advisory_xact_lock` pr. dato, så to samtidige bookinger ikke
-kan snige sig forbi.
+og samtidighedstjekket låses med `pg_advisory_xact_lock` pr. dato, så to
+samtidige bookinger ikke kan snige sig forbi.
 
 `slot` i skemaet (`slot_count`, `max_animals_per_slot`, `max_slots_per_booking`)
 er den tekniske betegnelse i databasen. UI'et kalder det samme begreb
 "interval"/"intervaller" i al brugervendt tekst — kolonnenavnene er ikke
 omdøbt.
 
-### Fysiske porte — udskudt, ikke bygget
+### Fysiske porte
 
-Modtagelsen har 7 fysiske porte. Teoretisk kan der derfor modtages op til
-7× kapaciteten pr. interval samtidig, hvis alle porte bruges — i dag har
-systemet kun ét samlet loft pr. interval (`max_animals_per_slot`), som om
-der kun var én port. Én af de 7 porte er reserveret (fx til staldkøer),
-men reglen for hvilken og hvornår er ikke afklaret endnu (Henrik mangler
-at fastlægge det). **Byg ikke en portmodel, før det er afklaret** — en
-tildeling af booking til port, med kapacitet og dobbeltbooking-tjek
-(`bookings_no_overlap`) omregnet til at være pr. port, er en større
-ændring, og en forhastet regel for den reserverede port vil sandsynligvis
-skulle laves om.
+Modtagelsen har 7 fysiske porte, så op til 7 biler kan aflæsses samtidig.
+Systemet tildeler **ikke** en booking til en bestemt, navngivet port — der
+er ingen `port`-kolonne, og ingen UI til at vælge port. I stedet er der
+et samlet loft over, hvor mange bookinger (fra forskellige transportører)
+der må overlappe samme interval: `settings.max_concurrent_bookings_per_slot`
+(default 6), håndhævet i `validate_booking` (migration
+`20260917160000_concurrent_bookings_per_slot.sql`). `max_animals_per_slot`
+er stadig loftet pr. booking (pr. transportør); det samlede dyreloft for et
+fuldt booket interval er derfor `max_animals_per_slot × max_concurrent_bookings_per_slot`.
+
+Én af de 7 porte er reserveret (fx til staldkøer), men reglen for hvilken
+og hvornår er ikke afklaret endnu (Henrik mangler at fastlægge det).
+Løsningen håndterer dette uden at kende gate-identiteten: den normale
+grænse sættes til 6, og den 7. bruges kun ekstraordinært af administrator
+via `capacity_override` på den enkelte booking. **Byg ikke en model, der
+tildeler bookinger til en bestemt, navngivet port, før den reserverede
+ports regel er afklaret** — det ville kræve en `port`-kolonne og et
+dobbeltbooking-tjek pr. port, og en forhastet regel for netop den
+reserverede port vil sandsynligvis skulle laves om.
 
 ---
 

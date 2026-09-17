@@ -25,6 +25,12 @@ CREATE TYPE public.animal_category AS ENUM ('KO', 'KVIE', 'TYR', 'UNGTYR', 'STUD
 -- række, ikke slå op i settings). Migreret til almindelige kolonner
 -- (ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION) og sættes nu i
 -- validate_booking() ud fra settings.slot_minutes. Se CLAUDE.md.
+--
+-- Dobbeltbooking var oprindeligt spærret af bookings_no_overlap
+-- (EXCLUDE USING gist (period WITH &&)), som antog kun ét samtidigt
+-- afhentningssted pr. interval. Fabrikken har 7 fysiske porte, så
+-- constraint'en er erstattet af en samtidighedstælling i
+-- validate_booking() mod settings.max_concurrent_bookings_per_slot.
 -- ============================================================
 
 CREATE TABLE public.bookings (
@@ -126,7 +132,8 @@ CREATE TABLE public.settings (
   max_slots_per_booking integer NOT NULL DEFAULT 6,
   max_animals_per_day integer NOT NULL DEFAULT 800,
   max_animals_per_slot integer NOT NULL DEFAULT 50,
-  pending_counts_in_capacity boolean NOT NULL DEFAULT true
+  pending_counts_in_capacity boolean NOT NULL DEFAULT true,
+  max_concurrent_bookings_per_slot integer NOT NULL DEFAULT 6
 );
 
 -- ============================================================
@@ -136,7 +143,6 @@ CREATE TABLE public.settings (
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_animal_count_check CHECK ((animal_count > 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_carrier_id_fkey FOREIGN KEY (carrier_id) REFERENCES carriers(id);
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_farmer_id_fkey FOREIGN KEY (farmer_id) REFERENCES farmers(id);
-ALTER TABLE public.bookings ADD CONSTRAINT bookings_no_overlap EXCLUDE USING gist (period WITH &&) WHERE ((status = ANY (ARRAY['AFVENTER_GODKENDELSE'::booking_status, 'GODKENDT'::booking_status])));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_pkey PRIMARY KEY (id);
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_slot_count_check CHECK ((slot_count >= 1));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_ko_check CHECK ((n_ko >= 0));
@@ -165,13 +171,14 @@ ALTER TABLE public.settings ADD CONSTRAINT settings_max_animals_per_slot_check C
 ALTER TABLE public.settings ADD CONSTRAINT settings_max_slots_per_booking_check CHECK ((max_slots_per_booking > 0));
 ALTER TABLE public.settings ADD CONSTRAINT settings_pkey PRIMARY KEY (id);
 ALTER TABLE public.settings ADD CONSTRAINT settings_slot_minutes_check CHECK ((slot_minutes > 0));
+ALTER TABLE public.settings ADD CONSTRAINT settings_max_concurrent_bookings_per_slot_check CHECK ((max_concurrent_bookings_per_slot > 0));
 
 -- ============================================================
 -- Indexes
 -- ============================================================
 
 CREATE UNIQUE INDEX bookings_pkey ON public.bookings USING btree (id);
-CREATE INDEX bookings_no_overlap ON public.bookings USING gist (period) WHERE (status = ANY (ARRAY['AFVENTER_GODKENDELSE'::booking_status, 'GODKENDT'::booking_status]));
+CREATE INDEX idx_bookings_period ON public.bookings USING gist (period) WHERE (status = ANY (ARRAY['AFVENTER_GODKENDELSE'::booking_status, 'GODKENDT'::booking_status]));
 CREATE INDEX idx_bookings_date ON public.bookings USING btree (booking_date);
 CREATE INDEX idx_bookings_carrier ON public.bookings USING btree (carrier_id);
 CREATE INDEX idx_bookings_status ON public.bookings USING btree (status);
@@ -405,6 +412,12 @@ end $function$
 -- (driver_name/truck_plate/trailer_plate/pickup_ref/arrived_at/
 -- picked_up_at), som ellers ville sende bookingen tilbage til
 -- godkendelseskøen, hver gang chauffør eller reg.nr. blev udfyldt.
+--
+-- Samtidighedstjekket (concurrent) regner det højeste antal samtidige
+-- bookinger på tværs af ALLE delintervaller, den nye booking dækker —
+-- ikke kun "overlapper et sted" — så en flerintervals-booking ikke kan
+-- snige sig forbi et fyldt delinterval, blot fordi et andet delinterval
+-- i dens span har ledig plads. Se CLAUDE.md, "Fysiske porte".
 CREATE OR REPLACE FUNCTION public.validate_booking()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -412,9 +425,10 @@ CREATE OR REPLACE FUNCTION public.validate_booking()
  SET search_path TO 'public'
 AS $function$
 declare
-  s      public.settings%rowtype;
-  booked int;
-  is_adm boolean := public.is_admin();
+  s          public.settings%rowtype;
+  booked     int;
+  concurrent int;
+  is_adm     boolean := public.is_admin();
 begin
   select * into s from public.settings where id;
   perform pg_advisory_xact_lock(hashtext(new.booking_date::text));
@@ -474,8 +488,8 @@ begin
       raise exception 'Maks % sammenhængende intervaller pr. booking.', s.max_slots_per_booking;
     end if;
 
-    -- Kapacitet pr. interval — admin kan tilsidesætte med capacity_override,
-    -- ligesom dagskapaciteten nedenfor.
+    -- Kapacitet pr. interval (dyr pr. booking) — admin kan tilsidesætte
+    -- med capacity_override, ligesom dagskapaciteten nedenfor.
     if new.animal_count > new.slot_count * s.max_animals_per_slot then
       if is_adm and new.capacity_override then
         raise notice 'Kapacitet pr. interval overskredet - tilsidesat af administrator.';
@@ -484,6 +498,31 @@ begin
           new.animal_count,
           ceil(new.animal_count::numeric / s.max_animals_per_slot),
           s.max_animals_per_slot;
+      end if;
+    end if;
+
+    -- Samtidige bookinger pr. interval (fysiske porte). Fabrikken har 7
+    -- porte; normal kapacitet er max_concurrent_bookings_per_slot (6) —
+    -- den 7. er reserveret og kræver admins capacity_override.
+    select coalesce(max(cnt), 0) into concurrent
+    from (
+      select count(b.id) as cnt
+      from generate_series(
+             lower(new.period), upper(new.period) - make_interval(mins => s.slot_minutes),
+             make_interval(mins => s.slot_minutes)
+           ) as pt
+      left join public.bookings b
+        on b.id <> new.id
+       and b.status in ('AFVENTER_GODKENDELSE','GODKENDT')
+       and b.period @> pt
+      group by pt
+    ) counts;
+
+    if concurrent >= s.max_concurrent_bookings_per_slot then
+      if is_adm and new.capacity_override then
+        raise notice 'Antal samtidige bookinger i intervallet overskredet - tilsidesat af administrator.';
+      else
+        raise exception 'Intervallet er fuldt booket (maks % samtidige leverancer).', s.max_concurrent_bookings_per_slot;
       end if;
     end if;
 

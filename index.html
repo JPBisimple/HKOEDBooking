@@ -63,19 +63,21 @@
   .cal .hd.closed{background:rgba(0,0,0,.25);color:var(--muted)}
   .cal .tm{font-size:12px;color:var(--muted);padding:4px 6px;text-align:right}
   .cell{min-height:34px;border:1px solid var(--line);border-radius:3px;background:rgba(214,209,202,.04);
-        padding:3px 5px;font-size:11px;cursor:pointer;overflow:hidden;color:var(--muted)}
-  .cell[data-d]:hover{border-color:var(--gold-lt);background:rgba(133,117,78,.18);color:var(--gold-lt)}
-  .cell.disabled{background:rgba(0,0,0,.22);border-color:transparent;cursor:not-allowed;color:transparent}
-  .cell.busy{background:var(--greige);border-color:#8B8373;border-left:5px solid #6E6759;
-             color:var(--on-light);cursor:default}
-  .cell.own{color:var(--on-light);cursor:pointer;font-weight:500}
-  .cell.own:hover{filter:brightness(.93)}
-  .cell.own.GODKENDT{background:var(--appr);border-color:var(--green);border-left:5px solid var(--green)}
-  .cell.own.AFVENTER_GODKENDELSE{background:var(--pend);border-color:var(--gold);border-left:5px solid var(--gold)}
-  .cell.own.pre{background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 5px,transparent 5px 10px)}
-  .cell.cont{border-top-style:dashed;border-top-color:rgba(26,60,52,.35)}
+        padding:3px;font-size:11px;overflow:hidden;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+  .cell.disabled{background:rgba(0,0,0,.22);border-color:transparent;color:transparent}
+  .slot-row{border-radius:2px;padding:2px 4px}
+  .slot-row.busy{background:var(--busy-bg);color:var(--muted)}
+  .slot-row.own{background:var(--greige);color:var(--on-light);cursor:pointer;font-weight:500}
+  .slot-row.own:hover{filter:brightness(.93)}
+  .slot-row.own.GODKENDT{background:var(--appr);border-left:4px solid var(--green)}
+  .slot-row.own.AFVENTER_GODKENDELSE{background:var(--pend);border-left:4px solid var(--gold)}
+  .slot-row.own.pre{background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 5px,transparent 5px 10px)}
+  .slot-row.own.cont{opacity:.85}
   .more{color:rgba(26,60,52,.78);font-style:italic;font-size:10px;font-weight:400}
-  .cell.sel{background:rgba(133,117,78,.45);border-color:var(--gold-lt);box-shadow:inset 0 0 0 1px var(--gold-lt);color:#fff}
+  .slot-row.add{cursor:pointer;text-align:center;border:1px dashed var(--line)}
+  .slot-row.add:hover{border-color:var(--gold-lt);background:rgba(133,117,78,.18);color:var(--gold-lt)}
+  .slot-row.add.full{color:var(--gold-lt);border-style:solid}
+  .slot-row.add.sel{background:rgba(133,117,78,.45);border-color:var(--gold-lt);box-shadow:inset 0 0 0 1px var(--gold-lt);color:#fff}
   .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;border:1px solid;
        color:var(--on-light);font-weight:600}
   .t-GODKENDT{background:var(--appr);border-color:var(--green)}
@@ -187,7 +189,6 @@ const isOpenDay = ds => { const d=parse(ds); return d.getDay()>=1 && d.getDay()<
 
 function msg(e){
   if(!e) return '';
-  if(e.code === '23P01') return 'Et eller flere af de valgte intervaller er allerede optaget. Opdatér kalenderen og prøv igen.';
   if(e.code === '42501' || (e.message||'').includes('row-level security'))
     return 'Du har ikke rettigheder til denne handling.';
   return e.message || String(e);
@@ -377,7 +378,11 @@ async function renderCal(){
   el.innerHTML = '<div class="panel">Indlæser…</div>';
   S.cal = await loadCalendar(from,to);
   const slots = slotList(), today = todayStr();
-  const at = (ds,t) => S.cal.find(b => b.booking_date===ds
+  const maxConc = S.settings.max_concurrent_bookings_per_slot;
+  // Flere transportører kan booke samme interval samtidig (op til
+  // maxConc — fabrikkens fysiske porte), så et interval kan rumme flere
+  // bookinger, ikke kun én.
+  const overlapping = (ds,t) => S.cal.filter(b => b.booking_date===ds
       && toMin(hhmm(b.start_time))<=toMin(t) && toMin(hhmm(b.end_time))>toMin(t));
 
   const nDays = calDaysShown();
@@ -398,27 +403,34 @@ async function renderCal(){
   for(const t of slots){
     grid += `<div class="tm">${t}</div>`;
     for(const i of dayIdx){
-      const ds = fmt(addDays(S.weekStart,i)), b = at(ds,t), past = ds < today;
-      if(b){
+      const ds = fmt(addDays(S.weekStart,i)), past = ds < today;
+      if(past || !isOpenDay(ds)){
+        grid += `<div class="cell disabled"></div>`;
+        continue;
+      }
+      const occ = overlapping(ds,t);
+      const own = occ.filter(b=>b.is_own);
+      const otherN = occ.length - own.length;
+      const full = occ.length >= maxConc;
+
+      let rows = own.map(b=>{
         const first = hhmm(b.start_time)===t;
         const n = b.slot_count;
         const pos = (toMin(t)-toMin(hhmm(b.start_time)))/S.settings.slot_minutes + 1;
         const span = `${hhmm(b.start_time)}–${hhmm(b.end_time)}`;
         const title = n>1 ? `${span} · ${n} intervaller` : span;
-        if(b.is_own){
-          grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}" data-b="${b.id}" title="${title} — klik for at redigere">
-            ${first
-              ? `<b>${esc(b.carrier_label)}</b>${n>1?` <span style="font-weight:400">(${n} intervaller, ${span})</span>`:''}<br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer slagteri)':''}`
-              : `<span class="more">↳ ${esc(b.carrier_label)}, ${pos} af ${n}</span>`}</div>`;
-        } else {
-          grid += `<div class="cell busy ${first?'':'cont'}" title="${title}">
-            ${first ? `Optaget${n>1?` (${n} intervaller, ${span})`:''}` : `<span class="more">↳ optaget, ${pos} af ${n}</span>`}</div>`;
-        }
-      } else if(past || !isOpenDay(ds)){
-        grid += `<div class="cell disabled"></div>`;
-      } else {
-        grid += `<div class="cell" data-d="${ds}" data-t="${t}">+</div>`;
+        return `<div class="slot-row own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}" data-b="${b.id}" title="${title} — klik for at redigere">
+          ${first
+            ? `<b>${esc(b.carrier_label)}</b>${n>1?` <span style="font-weight:400">(${n} intervaller, ${span})</span>`:''}<br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer slagteri)':''}`
+            : `<span class="more">↳ ${esc(b.carrier_label)}, ${pos} af ${n}</span>`}</div>`;
+      }).join('');
+      if(otherN>0){
+        rows += `<div class="slot-row busy" title="${otherN} af ${maxConc} pladser optaget af andre transportører">Optaget (${otherN})</div>`;
       }
+      if(!full || isAdmin()){
+        rows += `<div class="slot-row add ${full?'full':''}" data-d="${ds}" data-t="${t}" title="${full?'Intervallet er fuldt booket — kun administrator kan tilføje (reservekapacitet)':'Ledig plads'}">${full?'+ (admin)':'+'}</div>`;
+      }
+      grid += `<div class="cell">${rows}</div>`;
     }
   }
   grid += '</div>';
@@ -429,12 +441,14 @@ async function renderCal(){
       <div style="flex:0"><button class="btn sec" id="wk-today">I dag</button></div>
       <div style="flex:0"><button class="btn sec" id="wk-next">Næste →</button></div>
       <div style="flex:0;color:var(--muted);align-self:center;white-space:nowrap">${rangeLabel}</div>
-    </div>${grid}
+    </div>
+    <div class="hint" style="margin-bottom:8px">Hvert interval har plads til ${maxConc} samtidige leverancer${isAdmin()?' (administrator kan ekstraordinært tilføje en 7.)':''}.</div>
+    ${grid}
     <div class="legend">
       <span><i style="background:var(--appr);border-color:var(--green)"></i>Egen godkendt booking</span>
       <span><i style="background:var(--pend);border-color:var(--gold)"></i>Egen afventende</span>
       <span><i style="background:var(--pend);border-color:var(--gold);background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 4px,transparent 4px 8px)"></i>Prebooking (skraveret)</span>
-      <span><i style="background:var(--greige)"></i>Optaget af anden transportør</span>
+      <span><i style="background:var(--busy-bg)"></i>Optaget af andre transportører (antal)</span>
       <span><i style="background:rgba(0,0,0,.22)"></i>Lukket / passeret</span>
       <span>Klik på et ledigt interval, eller træk hen over flere i samme dag for at booke dem samlet. Klik på en egen booking for at redigere den.</span>
     </div>
@@ -456,7 +470,7 @@ async function renderCal(){
 // landmand — hent den fulde række fra bookings (RLS giver kun adgang til
 // egne rækker, admin ser alle) inden formularen åbnes.
 function wireCalEdit(el){
-  el.querySelectorAll('.cell.own[data-b]').forEach(c => c.addEventListener('click', async () => {
+  el.querySelectorAll('.slot-row.own[data-b]').forEach(c => c.addEventListener('click', async () => {
     const { data, error } = await sb.from('bookings')
       .select('*, carriers(name), farmers(name, chr, address, zip_code, city)').eq('id', c.dataset.b).single();
     if(error) return alert(msg(error));
@@ -467,7 +481,7 @@ function wireCalEdit(el){
 // Klik og træk hen over flere slots i samme dag. Markeringen stopper ved
 // første optagne eller lukkede slot og ved max_slots_per_booking.
 function enableRangeSelect(el, slots){
-  const cells = [...el.querySelectorAll('.cell[data-d]')];
+  const cells = [...el.querySelectorAll('.slot-row.add[data-d]')];
   const byKey = new Map(cells.map(c => [c.dataset.d+'#'+c.dataset.t, c]));
   const idx = t => slots.indexOf(t);
   const freeAt = (ds,i) => byKey.get(ds+'#'+slots[i]) || null;
@@ -493,7 +507,7 @@ function enableRangeSelect(el, slots){
   const cellFrom = ev => {
     const p = ev.touches ? ev.touches[0] : ev;
     const n = document.elementFromPoint(p.clientX, p.clientY);
-    return n && n.classList.contains('cell') && n.dataset.d ? n : null;
+    return n ? n.closest('.slot-row.add[data-d]') : null;
   };
 
   cells.forEach(c => c.addEventListener('pointerdown', ev => {
@@ -581,15 +595,21 @@ async function bookingModal(ds, t, existing, preset){
     $('f-note').value    = existing.note || '';
   }
 
-  // Hvor mange sammenhængende slots er ledige fra et givet starttidspunkt.
-  // Den booking der rettes tæller ikke som optaget.
+  const maxConc = S.settings.max_concurrent_bookings_per_slot;
+  // Antal andre bookinger (transportører), der allerede optager et givet
+  // tidspunkt. Den booking der rettes tæller ikke med.
+  const concurrencyAt = tm => others.filter(b =>
+    toMin(hhmm(b.start_time)) <= toMin(tm) && toMin(hhmm(b.end_time)) > toMin(tm)).length;
+
+  // Hvor mange sammenhængende slots er ledige (under maxConc samtidige
+  // bookinger) fra et givet starttidspunkt. Administrator kan altid vælge
+  // et fuldt interval — tilsidesættelsen sker med "Tillad at overskride
+  // kapacitet"-feltet ved gem, ikke ved selve valget af tidspunkt.
   const freeFrom = st => {
     let n = 0;
     for(let i = slots.indexOf(st); i < slots.length; i++){
       const cur = slots[i];
-      const taken = others.some(b =>
-        toMin(hhmm(b.start_time)) <= toMin(cur) && toMin(hhmm(b.end_time)) > toMin(cur));
-      if(taken) break;
+      if(concurrencyAt(cur) >= maxConc && !isAdmin()) break;
       n++;
     }
     return Math.max(1, Math.min(n, S.settings.max_slots_per_booking));
@@ -610,16 +630,17 @@ async function bookingModal(ds, t, existing, preset){
 
   const updateCap = () => {
     const n = parseInt($('f-slots').value,10) * perSlot;
-    $('f-cap').textContent = `${catTotal()} dyr valgt · maks. ${perSlot} dyr pr. interval – ${n} dyr med det valgte antal intervaller.`;
+    const st = $('f-start') ? $('f-start').value : t;
+    const conc = concurrencyAt(st);
+    $('f-cap').textContent = `${catTotal()} dyr valgt · maks. ${perSlot} dyr pr. interval – ${n} dyr med det valgte antal intervaller. · ${conc} af ${maxConc} pladser i intervallet allerede booket af andre.`;
   };
 
   const buildStart = () => {
     if(!$('f-start')) return;
     const cur = $('f-start').value || t;
     $('f-start').innerHTML = slots.map(x=>{
-      const busy = others.some(b =>
-        toMin(hhmm(b.start_time)) <= toMin(x) && toMin(hhmm(b.end_time)) > toMin(x));
-      return busy ? '' : `<option value="${x}" ${x===cur?'selected':''}>${x}</option>`;
+      const n = concurrencyAt(x), full = n >= maxConc;
+      return `<option value="${x}" ${x===cur?'selected':''}>${x}${full?` (fuldt — ${n} af ${maxConc})`:''}</option>`;
     }).join('');
     if(!$('f-start').value) $('f-start').value = $('f-start').options[0]?.value || t;
   };
@@ -872,16 +893,20 @@ async function renderAdmin(){
     <h2>Kapacitet</h2>
     <div class="row">
       <div><label>Maks. dyr pr. dag</label><input type="number" id="st-max" value="${S.settings.max_animals_per_day}"></div>
-      <div><label>Maks. dyr pr. interval</label><input type="number" id="st-slot" value="${S.settings.max_animals_per_slot}"></div>
+      <div><label>Maks. dyr pr. interval (pr. transportør)</label><input type="number" id="st-slot" value="${S.settings.max_animals_per_slot}"></div>
+      <div><label>Maks. samtidige bookinger pr. interval</label><input type="number" id="st-conc" value="${S.settings.max_concurrent_bookings_per_slot}"></div>
       <div><label>Maks. intervaller pr. booking</label><input type="number" id="st-slots" value="${S.settings.max_slots_per_booking}"></div>
       <div style="flex:0"><button class="btn" id="st-save">Gem</button></div>
     </div>
+    <p class="hint">Fabrikken har 7 fysiske porte til aflæsning. "Maks. samtidige bookinger pr. interval"
+      bør normalt sættes til 6 — den 7. port er reserveret og kan kun bruges af administrator via
+      "Tillad at overskride kapacitet" på den enkelte booking. Se CLAUDE.md, "Fysiske porte".</p>
     <p class="hint">Teoretisk dagsmaksimum med de nuværende værdier:
-      ${slotList().length} intervaller × ${S.settings.max_animals_per_slot} dyr =
-      <b>${slotList().length*S.settings.max_animals_per_slot} dyr</b>.
+      ${slotList().length} intervaller × ${S.settings.max_animals_per_slot} dyr × ${S.settings.max_concurrent_bookings_per_slot} samtidige bookinger =
+      <b>${slotList().length*S.settings.max_animals_per_slot*S.settings.max_concurrent_bookings_per_slot} dyr</b>.
       Dagsloftet på ${S.settings.max_animals_per_day} dyr kan derfor
-      ${slotList().length*S.settings.max_animals_per_slot < S.settings.max_animals_per_day
-        ? 'ikke nås med én modtagelinje.' : 'nås.'}</p>
+      ${slotList().length*S.settings.max_animals_per_slot*S.settings.max_concurrent_bookings_per_slot < S.settings.max_animals_per_day
+        ? 'ikke nås med de nuværende værdier.' : 'nås.'}</p>
     <p class="hint">Transportører, landmænd og brugerprofiler oprettes i Supabase Studio
       (tabellerne <code>carriers</code>, <code>farmers</code>, <code>profiles</code>).</p>
   </div>`;
@@ -925,6 +950,7 @@ async function renderAdmin(){
     const { error } = await sb.from('settings').update({
       max_animals_per_day: parseInt($('st-max').value,10),
       max_animals_per_slot: parseInt($('st-slot').value,10),
+      max_concurrent_bookings_per_slot: parseInt($('st-conc').value,10),
       max_slots_per_booking: parseInt($('st-slots').value,10)
     }).eq('id',true);
     if(error) return alert(msg(error));
