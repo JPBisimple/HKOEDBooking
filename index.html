@@ -1152,6 +1152,7 @@ function printKoreseddel(groups){
   const title = ref ? `Køreseddel – Afhentning ${esc(ref)}` : `Køreseddel – ${esc(groups[0]?.booking.farmers?.name||'')}`;
   win.document.write(`<!DOCTYPE html><html lang="da"><head><meta charset="utf-8"><title>${title}</title>
   <style>
+    @page{size:landscape;margin:12mm}
     body{font:12px/1.4 system-ui,Segoe UI,Roboto,sans-serif;margin:20px;color:#111}
     table{border-collapse:collapse;width:100%;margin-top:12px}
     th,td{border:1px solid #333;padding:4px 6px;font-size:11px}
