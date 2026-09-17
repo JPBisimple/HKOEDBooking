@@ -666,10 +666,8 @@ async function renderList(){
         ${pickupGroups.map(g=>`<option value="${esc(g.ref)}">${dk(g.date)} · ${esc(g.ref)}${isAdmin()?` · ${esc([...g.carriers].filter(Boolean).join(', '))}`:''} (${g.ids.length} booking${g.ids.length>1?'er':''})</option>`).join('')}
       </select>
       <button class="btn sec" id="ks-clear">Ryd valg</button>
-      <button class="btn sec" id="ks-mark">Markér til afhentning</button>
-      <button class="btn" id="ks-show">Vis køreseddel</button>
     </div>
-    <table><tr><th></th><th>Dato</th><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th>Afhentning</th><th></th></tr>
+    <table><tr><th style="padding:4px 8px"><button class="btn" id="ks-mark" style="padding:5px 10px;font-size:12px;white-space:nowrap">Markér til afhentning</button></th><th>Dato</th><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th>Afhentning</th><th></th></tr>
     ${rows.map(r=>`<tr>
       <td>${pickable(r)?`<input type="checkbox" data-pick="${r.id}" style="width:auto" ${S.pickupSelection.has(r.id)?'checked':''}>`:''}</td>
       <td>${dk(r.booking_date)}</td><td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
@@ -678,13 +676,13 @@ async function renderList(){
       <td><span class="tag t-${r.status}">${statusTxt(r.status)}</span></td>
       <td>${r.pickup_ref?esc(r.pickup_ref):'<span style="color:var(--muted)">–</span>'}</td>
       <td style="white-space:nowrap">
-        ${r.type==='PREBOOKING' && ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
-          ? `<button class="btn" data-confirm="${r.id}">Bekræft booking</button>`:''}
         ${isAdmin()?`<button class="btn sec" data-edit="${r.id}">Ret</button>
                      <button class="btn danger" data-del="${r.id}">Slet</button>`:''}
         ${['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
           ? `<button class="btn sec" data-animals="${r.id}">Registrer dyr</button>
              <button class="btn sec" data-cancel="${r.id}">Annullér</button>`:''}
+        ${r.type==='PREBOOKING' && ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
+          ? `<button class="btn" data-confirm="${r.id}">Bekræft booking</button>`:''}
       </td></tr>`).join('')}
     </table>${rows.length?'':'<p style="color:var(--muted)">Ingen bookinger.</p>'}</div>`;
   wireRowActions(el, rows, renderList);
@@ -692,10 +690,12 @@ async function renderList(){
 }
 
 function wirePickupToolbar(el, rows, pickupGroups, refresh){
+  // "Markér til afhentning" sidder som en rigtig knap i kolonneoverskriften
+  // over checkboksene, så den tydeligt ligner det, den er — klikbar, ikke
+  // bare en label. Aktiv når mindst én booking er markeret.
   const updateCount = () => {
     const n = S.pickupSelection.size;
     $('ks-count').textContent = n ? `${n} booking${n>1?'er':''} valgt til afhentning` : 'Ingen bookinger valgt til afhentning';
-    $('ks-show').disabled = n===0;
     $('ks-mark').disabled = n===0;
   };
   el.querySelectorAll('[data-pick]').forEach(cb => cb.onchange = () => {
@@ -703,18 +703,23 @@ function wirePickupToolbar(el, rows, pickupGroups, refresh){
     updateCount();
   });
   $('ks-clear').onclick = () => { S.pickupSelection.clear(); refresh(); };
-  $('ks-show').onclick = () => koreseddelModal([...S.pickupSelection], rows);
-  // Stempler de markerede bookinger med en afhentningskode, uden at åbne
-  // køresedlen — adskilt fra "Vis køreseddel", som kun viser/udskriver.
-  // driver/plade-parametre er null: rører ikke evt. allerede sat chauffør/
-  // reg.nr. (se assign_pickup_ref).
+  // Stempler de markerede bookinger med en afhentningskode og åbner
+  // derefter køresedlen for netop den gruppe, så man kan sætte
+  // chauffør/reg.nr. og udskrive med det samme. Listen genindlæses i
+  // baggrunden, så Afhentning-kolonnen og dropdownen er opdateret, når
+  // modalen lukkes. driver/plade-parametre er null: rører ikke evt.
+  // allerede sat chauffør/reg.nr. (se assign_pickup_ref).
   $('ks-mark').onclick = async () => {
     $('ks-mark').disabled = true;
+    const ids = [...S.pickupSelection];
     const { error } = await sb.rpc('assign_pickup_ref', {
-      p_booking_ids: [...S.pickupSelection], p_driver_name: null, p_truck_plate: null, p_trailer_plate: null
+      p_booking_ids: ids, p_driver_name: null, p_truck_plate: null, p_trailer_plate: null
     });
     if(error){ $('ks-mark').disabled = false; return alert(msg(error)); }
     refresh();
+    const { data } = await sb.from('bookings')
+      .select('*, carriers(name), farmers(name, chr, address, zip_code, city)').in('id', ids);
+    koreseddelModal(ids, data||[]);
   };
   $('ks-existing').onchange = () => {
     const ref = $('ks-existing').value;
