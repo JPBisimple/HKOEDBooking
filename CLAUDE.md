@@ -252,10 +252,12 @@ mønster som det eksterne "CattleReg"-værktøj (indtastningslinje øverst,
 resultattabel nedenunder), men i appens eget mørke tema. Alder, Salmonella,
 veterinær- og fødevarestatus og "Må slagtes" er kolonner i tabellen, der
 viser en tom placeholder, indtil SEGES-integrationen findes — de er **ikke**
-felter, der kan udfyldes manuelt. "Uden check"-toggle og "Søg"-knap er
-bevidst deaktiverede: der findes endnu ikke et "med check"-flow at slå
-fra/til, så de er kun visuel forberedelse til SEGES-opslaget. CSV-eksport
-og "Ryd alle" er lokale hjælpefunktioner, ikke afhængige af SEGES.
+felter, der kan udfyldes manuelt. "Søg"-knappen er bevidst deaktiveret: der
+findes endnu ikke et SEGES-opslag at koble den til, så den er kun visuel
+forberedelse. Et "Uden check"-toggle fra CattleReg-forlægget er bevidst
+fravalgt — det hører til et "med check"-flow (SEGES-opslag), som ikke skal
+være en del af denne app. CSV-eksport og "Ryd alle" er lokale
+hjælpefunktioner, ikke afhængige af SEGES.
 
 **Køreseddel:** myndighedskrav. Udskrives fra `booking_animals` +
 bookingens/landmandens stamdata: landmandens navn/adresse/CHR

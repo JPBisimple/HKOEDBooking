@@ -101,15 +101,6 @@
   .stepper input:focus{outline:2px solid var(--gold);outline-offset:-2px}
   .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .stepper input[type=number]{-moz-appearance:textfield}
-  .switch{position:relative;display:inline-block;width:34px;height:20px;flex:0 0 auto;vertical-align:middle}
-  .switch input{opacity:0;width:0;height:0}
-  .switch .slider{position:absolute;inset:0;background:rgba(214,209,202,.25);border-radius:20px;transition:.15s}
-  .switch .slider:before{content:"";position:absolute;height:14px;width:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
-  .switch input:checked+.slider{background:var(--gold)}
-  .switch input:checked+.slider:before{transform:translateX(14px)}
-  .switch input:disabled+.slider{opacity:.6;cursor:not-allowed}
-  .toggle-field{display:flex;align-items:center;gap:8px;flex:0 0 auto}
-  .toggle-field .lbl{font-size:12px;color:var(--muted)}
   .placeholder-cell{color:var(--muted);font-style:italic}
   .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
   .toolbar .spacer{flex:1}
@@ -850,10 +841,6 @@ async function animalsModal(booking){
 
       ${editable?`
       <div class="toolbar" style="align-items:flex-end">
-        <div class="toggle-field">
-          <label class="switch"><input type="checkbox" id="a-nocheck" checked disabled><span class="slider"></span></label>
-          <span class="lbl" title="SEGES-tjek er ikke tilsluttet endnu — alle dyr registreres uden check">Uden check</span>
-        </div>
         <div><label>Kategori</label><select id="a-cat"><option value="">Ukendt (SEGES)</option>${CATS.map(([v,lbl])=>`<option value="${v}">${lbl}</option>`).join('')}</select></div>
         <div><label>QA-mærke</label><select id="a-qa"><option value="2">Standard</option><option value="3">Returdyr</option></select></div>
         <div><label>Originalt CHR</label><input id="a-chr" placeholder="0059147" value="${esc(booking.farmers?.chr||'')}"></div>
