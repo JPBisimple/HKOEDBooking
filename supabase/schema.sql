@@ -56,7 +56,8 @@ CREATE TABLE public.bookings (
   truck_plate text,
   trailer_plate text,
   arrived_at timestamp with time zone,
-  picked_up_at timestamp with time zone
+  picked_up_at timestamp with time zone,
+  pickup_ref text
 );
 
 CREATE TABLE public.booking_animals (
@@ -395,6 +396,13 @@ end $function$
 -- direkte. animal_count er bevidst IKKE en GENERATED-kolonne: en BEFORE
 -- trigger kan ikke læse en endnu ikke-beregnet generated-kolonne, og
 -- kapacitetstjekket nedenfor har brug for værdien med det samme.
+--
+-- Statusnulstillingen ved transportør-rettelse af en godkendt booking
+-- rammer kun de faktisk kapacitets-/planlægningsrelevante felter (præcis
+-- dem bookingModal kan ændre) — ikke ren afhentningsregistrering
+-- (driver_name/truck_plate/trailer_plate/pickup_ref/arrived_at/
+-- picked_up_at), som ellers ville sende bookingen tilbage til
+-- godkendelseskøen, hver gang chauffør eller reg.nr. blev udfyldt.
 CREATE OR REPLACE FUNCTION public.validate_booking()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -412,7 +420,20 @@ begin
   new.animal_count := coalesce(new.n_ko,0) + coalesce(new.n_kvie,0) + coalesce(new.n_tyr,0)
                      + coalesce(new.n_stud,0) + coalesce(new.n_kalv,0);
 
-  if tg_op = 'UPDATE' and not is_adm and old.status = 'GODKENDT' and new.status = 'GODKENDT' then
+  if tg_op = 'UPDATE' and not is_adm and old.status = 'GODKENDT' and new.status = 'GODKENDT'
+     and (new.booking_date is distinct from old.booking_date
+          or new.start_time is distinct from old.start_time
+          or new.slot_count is distinct from old.slot_count
+          or new.carrier_id is distinct from old.carrier_id
+          or new.farmer_id  is distinct from old.farmer_id
+          or new.n_ko   is distinct from old.n_ko
+          or new.n_kvie is distinct from old.n_kvie
+          or new.n_tyr  is distinct from old.n_tyr
+          or new.n_stud is distinct from old.n_stud
+          or new.n_kalv is distinct from old.n_kalv
+          or new.type   is distinct from old.type
+          or new.note   is distinct from old.note)
+  then
     new.status := 'AFVENTER_GODKENDELSE';
   end if;
 
@@ -495,6 +516,76 @@ begin
   end if;
 
   return new;
+end $function$
+;
+
+-- Løbenummeret i pickup_ref er et globalt, aldrig-nulstillende
+-- sekvensnummer (pickup_ref_seq) — ikke ét pr. dag. Datoen forrest i
+-- referencen ("20260917-1") er stadig den dag afhentningen sker, men
+-- tallet efter bindestregen tæller videre på tværs af alle datoer og
+-- transportører, så det faktisk er løbenummeret der stiger, ikke datoen.
+CREATE SEQUENCE IF NOT EXISTS public.pickup_ref_seq;
+GRANT USAGE ON SEQUENCE public.pickup_ref_seq TO authenticated;
+
+-- Sætter chauffør og reg.numre på de valgte bookinger og mærker dem med
+-- fælles pickup_ref. SECURITY INVOKER (standard) - UPDATE'en nedenfor
+-- kører derfor med kalderens egne rettigheder, så bookings_update-policyen
+-- (kun egne bookinger, medmindre admin) håndhæves som normalt uden at
+-- funktionen selv skal kende ejerskabsreglen.
+--
+-- Alle valgte bookinger skal have samme booking_date (så referencens
+-- datodel er entydig for gruppen). Deler de allerede samme pickup_ref,
+-- genbruges den (så man kan rette chauffør/reg.nr. uden at få et nyt
+-- nummer); ellers tildeles et nyt fra pickup_ref_seq.
+--
+-- p_driver_name/p_truck_plate/p_trailer_plate er NULL/tom = "rør ikke
+-- feltet" (coalesce mod den eksisterende værdi) — "Markér til
+-- afhentning"-knappen i UI'et stempler kun pickup_ref uden at sende
+-- chauffør/reg.numre, og skal derfor ikke kunne slette dem, hvis de
+-- allerede er sat af et tidligere kald.
+CREATE OR REPLACE FUNCTION public.assign_pickup_ref(
+  p_booking_ids uuid[], p_driver_name text, p_truck_plate text, p_trailer_plate text
+) RETURNS text
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_date     date;
+  v_ref      text;
+  v_existing text;
+begin
+  if p_booking_ids is null or array_length(p_booking_ids,1) is null then
+    raise exception 'Ingen bookinger valgt.';
+  end if;
+
+  select booking_date into v_date from public.bookings where id = p_booking_ids[1];
+  if v_date is null then
+    raise exception 'Booking ikke fundet.';
+  end if;
+
+  if exists (
+    select 1 from public.bookings where id = any(p_booking_ids) and booking_date <> v_date
+  ) then
+    raise exception 'Alle valgte bookinger skal have samme dato for at kunne grupperes til én afhentning.';
+  end if;
+
+  select pickup_ref into v_existing from public.bookings where id = p_booking_ids[1];
+  if v_existing is not null and not exists (
+    select 1 from public.bookings where id = any(p_booking_ids) and pickup_ref is distinct from v_existing
+  ) then
+    v_ref := v_existing;
+  else
+    v_ref := to_char(v_date,'YYYYMMDD') || '-' || nextval('public.pickup_ref_seq');
+  end if;
+
+  update public.bookings set
+    pickup_ref    = v_ref,
+    driver_name   = coalesce(nullif(trim(p_driver_name), ''), driver_name),
+    truck_plate   = coalesce(nullif(trim(p_truck_plate), ''), truck_plate),
+    trailer_plate = coalesce(nullif(trim(p_trailer_plate), ''), trailer_plate)
+  where id = any(p_booking_ids);
+
+  return v_ref;
 end $function$
 ;
 

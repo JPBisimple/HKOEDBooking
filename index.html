@@ -156,7 +156,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const sb = createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY);
 
 const S = { profile:null, settings:null, carriers:[], farmers:[], closed:new Set(),
-            weekStart:null, cal:[], view:'dash', dashShowClosed:true };
+            weekStart:null, cal:[], view:'dash', dashShowClosed:true, pickupSelection:new Set() };
 const DAYS = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag'];
 const isAdmin = () => S.profile?.role === 'admin';
 const $ = id => document.getElementById(id);
@@ -625,6 +625,10 @@ async function bookingModal(ds, t, existing, preset){
 }
 
 // ---------- BOOKINGLISTE ----------
+// Bookinger kan markeres til afhentning (checkboks) og samles i én
+// køreseddel via koreseddelModal — uafhængigt af Registrer dyr-skærmen.
+const pickable = r => ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status);
+
 async function renderList(){
   const el = $('v-list');
   const from = todayStr(), to = fmt(addDays(new Date(),60));
@@ -634,13 +638,43 @@ async function renderList(){
     .order('booking_date').order('start_time');
   if(error){ el.innerHTML = `<div class="panel err">${msg(error)}</div>`; return; }
   const rows = data||[];
+  const eligible = new Set(rows.filter(pickable).map(r=>r.id));
+  [...S.pickupSelection].forEach(id => { if(!eligible.has(id)) S.pickupSelection.delete(id); });
+
+  // Grupper allerede oprettede afhentninger (i dag og frem, kun egne
+  // bookinger for en transportør pga. RLS), så en tidligere afhentning
+  // kan genåbnes/genudskrives uden at genmarkere hver booking manuelt.
+  const pickupGroups = (() => {
+    const map = new Map();
+    rows.filter(r => r.pickup_ref).forEach(r => {
+      if(!map.has(r.pickup_ref)) map.set(r.pickup_ref, { ref:r.pickup_ref, date:r.booking_date, ids:[], carriers:new Set() });
+      const g = map.get(r.pickup_ref);
+      g.ids.push(r.id);
+      g.carriers.add(r.carriers?.name||'');
+    });
+    return [...map.values()].sort((a,b) => a.date===b.date ? a.ref.localeCompare(b.ref) : a.date.localeCompare(b.date));
+  })();
+
   el.innerHTML = `<div class="panel"><h2>${isAdmin()?'Alle bookinger':'Mine bookinger'} (60 dage frem)</h2>
-    <table><tr><th>Dato</th><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th></th></tr>
+    <div class="toolbar">
+      <span id="ks-count" style="color:var(--muted)"></span>
+      <div class="spacer"></div>
+      <select id="ks-existing" style="width:auto;min-width:240px" ${pickupGroups.length?'':'disabled'}>
+        <option value="">${pickupGroups.length?'Åbn eksisterende afhentning…':'Ingen afhentninger oprettet endnu'}</option>
+        ${pickupGroups.map(g=>`<option value="${esc(g.ref)}">${dk(g.date)} · ${esc(g.ref)}${isAdmin()?` · ${esc([...g.carriers].filter(Boolean).join(', '))}`:''} (${g.ids.length} booking${g.ids.length>1?'er':''})</option>`).join('')}
+      </select>
+      <button class="btn sec" id="ks-clear">Ryd valg</button>
+      <button class="btn sec" id="ks-mark">Markér til afhentning</button>
+      <button class="btn" id="ks-show">Vis køreseddel</button>
+    </div>
+    <table><tr><th></th><th>Dato</th><th>Tid</th><th>Transportør</th><th>Landmand</th><th>Dyr</th><th>Type</th><th>Status</th><th>Afhentning</th><th></th></tr>
     ${rows.map(r=>`<tr>
+      <td>${pickable(r)?`<input type="checkbox" data-pick="${r.id}" style="width:auto" ${S.pickupSelection.has(r.id)?'checked':''}>`:''}</td>
       <td>${dk(r.booking_date)}</td><td>${hhmm(r.start_time)}–${hhmm(r.end_time)}</td>
       <td>${esc(r.carriers?.name)}</td><td>${esc(r.farmers?.name)}</td>
       <td>${r.animal_count}</td><td>${r.type==='PREBOOKING'?'Prebooking':'Booking'}</td>
       <td><span class="tag t-${r.status}">${statusTxt(r.status)}</span></td>
+      <td>${r.pickup_ref?esc(r.pickup_ref):'<span style="color:var(--muted)">–</span>'}</td>
       <td style="white-space:nowrap">
         ${r.type==='PREBOOKING' && ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status)
           ? `<button class="btn" data-confirm="${r.id}">Bekræft booking</button>`:''}
@@ -652,6 +686,41 @@ async function renderList(){
       </td></tr>`).join('')}
     </table>${rows.length?'':'<p style="color:var(--muted)">Ingen bookinger.</p>'}</div>`;
   wireRowActions(el, rows, renderList);
+  wirePickupToolbar(el, rows, pickupGroups, renderList);
+}
+
+function wirePickupToolbar(el, rows, pickupGroups, refresh){
+  const updateCount = () => {
+    const n = S.pickupSelection.size;
+    $('ks-count').textContent = n ? `${n} booking${n>1?'er':''} valgt til afhentning` : 'Ingen bookinger valgt til afhentning';
+    $('ks-show').disabled = n===0;
+    $('ks-mark').disabled = n===0;
+  };
+  el.querySelectorAll('[data-pick]').forEach(cb => cb.onchange = () => {
+    cb.checked ? S.pickupSelection.add(cb.dataset.pick) : S.pickupSelection.delete(cb.dataset.pick);
+    updateCount();
+  });
+  $('ks-clear').onclick = () => { S.pickupSelection.clear(); refresh(); };
+  $('ks-show').onclick = () => koreseddelModal([...S.pickupSelection], rows);
+  // Stempler de markerede bookinger med en afhentningskode, uden at åbne
+  // køresedlen — adskilt fra "Vis køreseddel", som kun viser/udskriver.
+  // driver/plade-parametre er null: rører ikke evt. allerede sat chauffør/
+  // reg.nr. (se assign_pickup_ref).
+  $('ks-mark').onclick = async () => {
+    $('ks-mark').disabled = true;
+    const { error } = await sb.rpc('assign_pickup_ref', {
+      p_booking_ids: [...S.pickupSelection], p_driver_name: null, p_truck_plate: null, p_trailer_plate: null
+    });
+    if(error){ $('ks-mark').disabled = false; return alert(msg(error)); }
+    refresh();
+  };
+  $('ks-existing').onchange = () => {
+    const ref = $('ks-existing').value;
+    $('ks-existing').value = '';
+    const g = pickupGroups.find(x=>x.ref===ref);
+    if(g) koreseddelModal(g.ids, rows);
+  };
+  updateCount();
 }
 
 function wireRowActions(el, rows, refresh){
@@ -888,7 +957,6 @@ async function animalsModal(booking){
 
       <p style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
         ${!booking.picked_up_at ? `<button class="btn" id="a-pickup">Bekræft afhentning</button>` : ''}
-        <button class="btn sec" id="a-print">Udskriv køreseddel</button>
         <button class="btn sec" id="a-close">Luk</button>
       </p>
     </div></div>`;
@@ -902,7 +970,6 @@ async function animalsModal(booking){
     };
 
     $('a-close').onclick = () => $('modal-root').innerHTML='';
-    $('a-print').onclick = () => printKoreseddel(booking, animals);
 
     if(editable){
       const updateCkrFull = () => {
@@ -1018,24 +1085,65 @@ function exportAnimalsCsv(booking, animals){
   URL.revokeObjectURL(url);
 }
 
-// Printvenlig køreseddel — myndighedskrav. Genereres i et separat vindue
-// via browserens eget print (ingen ny afhængighed, ingen PDF-bibliotek).
-function printKoreseddel(booking, animals){
-  const f = booking.farmers || {};
-  const addrText = esc([f.name, f.address, [f.zip_code, f.city].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+// Køreseddel — myndighedskrav. Bygges som ÉT dokument for hele afhentningen
+// (ikke ét pr. booking): fælles header (dato, transportør, chauffør,
+// reg.numre, afhentningskode) og én samlet dyretabel for alle valgte
+// bookinger, med en Tid-kolonne så man stadig kan se hvilket interval det
+// enkelte dyr hører til. Til visning i app'en eller udskrift (browserens
+// eget print, ingen ny afhængighed, intet PDF-bibliotek).
+function pickupCommon(bookings, get){
+  const vs = new Set(bookings.map(b => get(b) || ''));
+  return vs.size===1 ? [...vs][0] : '';
+}
+
+function koreseddelDocumentHtml(groups){
+  const bookings = groups.map(g => g.booking);
+  const date   = pickupCommon(bookings, b=>b.booking_date);
+  const ref    = pickupCommon(bookings, b=>b.pickup_ref);
+  const carrier = pickupCommon(bookings, b=>b.carriers?.name) || [...new Set(bookings.map(b=>b.carriers?.name).filter(Boolean))].join(', ');
+  const driver  = pickupCommon(bookings, b=>b.driver_name);
+  const truck   = pickupCommon(bookings, b=>b.truck_plate);
+  const trailer = pickupCommon(bookings, b=>b.trailer_plate);
+
+  let n = 0;
+  const rows = groups.flatMap(g => g.animals.map(a => {
+    const f = g.booking.farmers || {};
+    const addrText = esc([f.name, f.address, [f.zip_code, f.city].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+    n++;
+    return `<tr>
+      <td>${n}</td>
+      <td>${hhmm(g.booking.start_time)}–${hhmm(g.booking.end_time)}</td>
+      <td>${addrText}</td>
+      <td>${esc(f.chr||'')}</td>
+      <td>${a.chr?esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):''):''}</td>
+      ${CATS.map(([c])=>`<td style="text-align:center">${a.category===c?'✓':''}</td>`).join('')}
+      <td>${esc(a.salmonella_status||'')}</td>
+      <td>${a.loaded_at?dtFmt(a.loaded_at):''}</td>
+      <td>${esc(a.remarks||'')}</td>
+    </tr>`;
+  })).join('');
+  const cols = 5 + CATS.length + 3;
+
+  return `<div class="hdr">
+    <div><b>Dato:</b> ${date?dk(date):'–'}${ref?`<br><b>Afhentning:</b> ${esc(ref)}`:''}</div>
+    <div><b>Transportør:</b><br>${esc(carrier)}</div>
+    <div><b>Chauffør:</b><br>${esc(driver)}</div>
+    <div><b>Registreringsnummer</b><br>Forvogn: ${esc(truck)}<br>Anhænger: ${esc(trailer)}</div>
+    <div>Himmerlandskød A/S<br>Nordre Ringvej 99, 9620 Aalestrup<br>CHR-nr: 133182 · Tlf. 98 64 14 44</div>
+  </div>
+  <table><tr><th></th><th>Tid</th><th>Navn og adresse</th><th>CHR-nr.</th><th>CKR-dyrenr.</th>
+    ${CATS.map(([,lbl])=>`<th>${lbl}</th>`).join('')}
+    <th>Salmonellastatus</th><th>Læssetidspunkt</th><th>Bemærkninger</th></tr>
+  ${rows || `<tr><td colspan="${cols}" style="text-align:center;color:#666">Ingen dyr registreret</td></tr>`}</table>`;
+}
+
+// groups: [{booking, animals}] — bookingerne der udgør afhentningen.
+function printKoreseddel(groups){
   const win = window.open('', '_blank', 'width=1000,height=700');
   if(!win){ alert('Pop-up blokeret – tillad pop-ups for denne side for at udskrive køresedlen.'); return; }
-  const rows = animals.map((a,i)=>`<tr>
-    <td>${i+1}</td>
-    <td>${addrText}</td>
-    <td>${esc(f.chr||'')}</td>
-    <td>${a.chr?esc(a.chr)+(a.animal_no?'-'+esc(a.animal_no):''):''}</td>
-    ${CATS.map(([c])=>`<td style="text-align:center">${a.category===c?'✓':''}</td>`).join('')}
-    <td>${esc(a.salmonella_status||'')}</td>
-    <td>${a.loaded_at?dtFmt(a.loaded_at):''}</td>
-    <td>${esc(a.remarks||'')}</td>
-  </tr>`).join('');
-  win.document.write(`<!DOCTYPE html><html lang="da"><head><meta charset="utf-8"><title>Køreseddel – ${esc(f.name||'')}</title>
+  const ref = pickupCommon(groups.map(g=>g.booking), b=>b.pickup_ref);
+  const title = ref ? `Køreseddel – Afhentning ${esc(ref)}` : `Køreseddel – ${esc(groups[0]?.booking.farmers?.name||'')}`;
+  win.document.write(`<!DOCTYPE html><html lang="da"><head><meta charset="utf-8"><title>${title}</title>
   <style>
     body{font:12px/1.4 system-ui,Segoe UI,Roboto,sans-serif;margin:20px;color:#111}
     table{border-collapse:collapse;width:100%;margin-top:12px}
@@ -1045,21 +1153,81 @@ function printKoreseddel(booking, animals){
     .hdr div{min-width:150px}
     .foot{margin-top:10px;font-size:11px;color:#333}
   </style></head><body>
-  <div class="hdr">
-    <div><b>Dato:</b> ${dk(booking.booking_date)}<br><b>Forventet ankomst kl.:</b> ${hhmm(booking.start_time)}<br><b>Ankomst kl.:</b> ${booking.arrived_at?dtFmt(booking.arrived_at):''}</div>
-    <div><b>Transportør:</b><br>${esc(booking.carriers?.name||'')}</div>
-    <div><b>Chauffør:</b><br>${esc(booking.driver_name||'')}</div>
-    <div><b>Registreringsnummer</b><br>Forvogn: ${esc(booking.truck_plate||'')}<br>Anhænger: ${esc(booking.trailer_plate||'')}</div>
-    <div>Himmerlandskød A/S<br>Nordre Ringvej 99, 9620 Aalestrup<br>CHR-nr: 133182 · Tlf. 98 64 14 44</div>
-  </div>
-  <table><tr><th></th><th>Navn og adresse</th><th>CHR-nr.</th><th>CKR-dyrenr.</th>
-    ${CATS.map(([,lbl])=>`<th>${lbl}</th>`).join('')}
-    <th>Salmonellastatus</th><th>Læssetidspunkt</th><th>Bemærkninger</th></tr>
-  ${rows}</table>
+  ${koreseddelDocumentHtml(groups)}
   <p class="foot">Udskrevet ${dk(todayStr())} fra Dyremodtagelse – Himmerlandskød.</p>
   <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   win.document.close();
+}
+
+// Henter dyr for de valgte bookinger og viser dem samlet i app'en. Her
+// kan chauffør og reg.numre også angives, og bookingerne mærkes med en
+// fælles pickup_ref ("gruppering") via assign_pickup_ref() i databasen,
+// så man bagefter kan se, hvilke bookinger der hørte til samme afhentning.
+async function koreseddelModal(ids, rows){
+  if(!ids.length) return;
+  const bookings = ids.map(id => rows.find(r=>r.id===id)).filter(Boolean);
+  const { data, error } = await sb.from('booking_animals').select('*').in('booking_id', ids).order('created_at');
+  if(error){ alert(msg(error)); return; }
+  const animals = data||[];
+
+  // Fælles værdi hvis alle valgte bookinger er enige, ellers tom (så
+  // formularen ikke lyver om en blandet gruppe).
+  const commonVal = key => { const vs = new Set(bookings.map(b=>b[key]||'')); return vs.size===1 ? [...vs][0] : ''; };
+
+  const render = () => {
+    const groups = bookings.map(b => ({ booking:b, animals: animals.filter(a=>a.booking_id===b.id) }));
+    const docHtml = koreseddelDocumentHtml(groups);
+    const ref = commonVal('pickup_ref');
+    $('modal-root').innerHTML = `<div class="overlay"><div class="modal" style="max-width:1100px">
+      <h2>Køreseddel – ${groups.length} booking${groups.length>1?'er':''}${ref?` · Afhentning ${esc(ref)}`:''}</h2>
+      <div class="row">
+        <div><label>Chauffør</label><input id="ks-driver" value="${esc(commonVal('driver_name'))}"></div>
+        <div><label>Forvogn – reg.nr.</label><input id="ks-truck" value="${esc(commonVal('truck_plate'))}"></div>
+        <div><label>Anhænger – reg.nr.</label><input id="ks-trailer" value="${esc(commonVal('trailer_plate'))}"></div>
+        <div style="flex:0;align-self:end"><button class="btn sec" id="ks-save">${ref?'Gem':'Gem og navngiv afhentning'}</button></div>
+      </div>
+      <div class="hint">${ref?`Bookingerne er grupperet som afhentning ${esc(ref)}.`:'Bookingerne er endnu ikke grupperet til én afhentning – klik "Gem" for at tildele et gruppenummer.'}</div>
+      <div id="ks-err" class="err hide"></div>
+      <style>
+        .ks-doc{background:#fff;color:#111;padding:14px;border-radius:4px;overflow:auto;font:12px/1.4 system-ui,Segoe UI,Roboto,sans-serif;margin-top:12px}
+        .ks-doc table{border-collapse:collapse;width:100%;margin-top:12px}
+        .ks-doc th,.ks-doc td{border:1px solid #333;padding:4px 6px;font-size:11px}
+        .ks-doc th{background:#1A3C34;color:#fff}
+        .ks-doc .hdr{display:flex;justify-content:space-between;border:1px solid #333;padding:8px;gap:16px;flex-wrap:wrap}
+        .ks-doc .hdr div{min-width:150px}
+      </style>
+      <div class="ks-doc">${docHtml}</div>
+      <p style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn" id="ks-print">Udskriv</button>
+        <button class="btn sec" id="ks-close">Luk</button>
+      </p>
+    </div></div>`;
+    $('ks-print').onclick = () => printKoreseddel(groups);
+    $('ks-close').onclick = () => $('modal-root').innerHTML='';
+    $('ks-save').onclick = async () => {
+      $('ks-save').disabled = true;
+      const { data:newRef, error } = await sb.rpc('assign_pickup_ref', {
+        p_booking_ids: ids,
+        p_driver_name: $('ks-driver').value.trim(),
+        p_truck_plate: $('ks-truck').value.trim(),
+        p_trailer_plate: $('ks-trailer').value.trim()
+      });
+      if(error){
+        $('ks-save').disabled = false;
+        $('ks-err').textContent = msg(error); $('ks-err').classList.remove('hide');
+        return;
+      }
+      bookings.forEach(b => Object.assign(b, {
+        pickup_ref: newRef,
+        driver_name: $('ks-driver').value.trim() || null,
+        truck_plate: $('ks-truck').value.trim() || null,
+        trailer_plate: $('ks-trailer').value.trim() || null
+      }));
+      render();
+    };
+  };
+  render();
 }
 
 // ---------- diverse ----------
