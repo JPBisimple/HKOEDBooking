@@ -499,7 +499,7 @@ async function bookingModal(ds, t, existing, preset){
       <div><label>Antal intervaller à ${S.settings.slot_minutes} min.</label><select id="f-slots"></select></div>
     </div>
     <label>Dyr pr. kategori</label>
-    ${[['ko','Ko'],['kvie','Kvie'],['tyr','Tyr'],['stud','Stud'],['kalv','Kalv']].map(([id,lbl])=>`
+    ${[['ko','Ko/ungko'],['kvie','Kvie'],['kalv','Kalv 8-12'],['ungtyr','Ungtyr 12-24'],['tyr','Tyr 24+'],['stud','Stud']].map(([id,lbl])=>`
     <div class="cat-row"><span class="cat-label">${lbl}</span>
       <div class="stepper">
         <button type="button" data-cat="${id}" data-step="-1">−</button>
@@ -523,7 +523,7 @@ async function bookingModal(ds, t, existing, preset){
     </p>
   </div></div>`;
 
-  const catIds = ['ko','kvie','tyr','stud','kalv'];
+  const catIds = ['ko','kvie','kalv','ungtyr','tyr','stud'];
   const catTotal = () => catIds.reduce((sum,c) => sum + (parseInt($('f-'+c).value,10)||0), 0);
 
   if(existing){
@@ -618,7 +618,7 @@ async function bookingModal(ds, t, existing, preset){
       booking_date: day, start_time: start+':00', slot_count: nSlots,
       carrier_id: myCarrier || $('f-car').value,
       farmer_id: $('f-far').value,
-      n_ko: counts.ko, n_kvie: counts.kvie, n_tyr: counts.tyr, n_stud: counts.stud, n_kalv: counts.kalv,
+      ...Object.fromEntries(catIds.map(c => ['n_'+c, counts[c]])),
       type: $('f-type').value,
       note: $('f-note').value.trim() || null,
       capacity_override: override
@@ -881,9 +881,11 @@ async function renderAdmin(){
 }
 
 // ---------- DYR / CHR (grundlag for den lovpligtige køreseddel) ----------
-// Rækkefølge matcher den fysiske køreseddel (Ko, Kalv, Kvie, Stude, Tyr).
-const CATS = [['KO','Ko'],['KALV','Kalv'],['KVIE','Kvie'],['STUD','Stude'],['TYR','Tyr']];
-const catLabel = c => ({KO:'Ko',KVIE:'Kvie',TYR:'Tyr',STUD:'Stude',KALV:'Kalv'}[c] || c);
+// Rækkefølge matcher den fysiske køreseddel (Ko, Kalv, Kvie, Stud, Tyr).
+// Ungtyr er en ny kategori uden fastlagt plads på det fysiske skema endnu
+// og tilføjes derfor sidst, så den ikke forskubber de øvrige kolonner.
+const CATS = [['KO','Ko/ungko'],['KALV','Kalv 8-12'],['KVIE','Kvie'],['STUD','Stud'],['TYR','Tyr 24+'],['UNGTYR','Ungtyr 12-24']];
+const catLabel = c => ({KO:'Ko/ungko',KVIE:'Kvie',TYR:'Tyr 24+',UNGTYR:'Ungtyr 12-24',STUD:'Stud',KALV:'Kalv 8-12'}[c] || c);
 const dtFmt = iso => { if(!iso) return ''; const d = new Date(iso); return `${dk(fmt(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
 // EID fra øremærket, fx "208 005914700404": landekode 208 (ikke brugt endnu

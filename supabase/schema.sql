@@ -15,7 +15,7 @@ CREATE TYPE public.booking_status AS ENUM ('AFVENTER_GODKENDELSE', 'GODKENDT', '
 
 CREATE TYPE public.booking_type AS ENUM ('PREBOOKING', 'BOOKING');
 
-CREATE TYPE public.animal_category AS ENUM ('KO', 'KVIE', 'TYR', 'STUD', 'KALV');
+CREATE TYPE public.animal_category AS ENUM ('KO', 'KVIE', 'TYR', 'UNGTYR', 'STUD', 'KALV');
 
 -- ============================================================
 -- Tabeller
@@ -38,6 +38,7 @@ CREATE TABLE public.bookings (
   n_ko integer NOT NULL DEFAULT 0,
   n_kvie integer NOT NULL DEFAULT 0,
   n_tyr integer NOT NULL DEFAULT 0,
+  n_ungtyr integer NOT NULL DEFAULT 0,
   n_stud integer NOT NULL DEFAULT 0,
   n_kalv integer NOT NULL DEFAULT 0,
   type booking_type NOT NULL DEFAULT 'BOOKING'::booking_type,
@@ -141,6 +142,7 @@ ALTER TABLE public.bookings ADD CONSTRAINT bookings_slot_count_check CHECK ((slo
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_ko_check CHECK ((n_ko >= 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_kvie_check CHECK ((n_kvie >= 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_tyr_check CHECK ((n_tyr >= 0));
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_ungtyr_check CHECK ((n_ungtyr >= 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_stud_check CHECK ((n_stud >= 0));
 ALTER TABLE public.bookings ADD CONSTRAINT bookings_n_kalv_check CHECK ((n_kalv >= 0));
 ALTER TABLE public.booking_animals ADD CONSTRAINT booking_animals_pkey PRIMARY KEY (id);
@@ -418,7 +420,7 @@ begin
   perform pg_advisory_xact_lock(hashtext(new.booking_date::text));
 
   new.animal_count := coalesce(new.n_ko,0) + coalesce(new.n_kvie,0) + coalesce(new.n_tyr,0)
-                     + coalesce(new.n_stud,0) + coalesce(new.n_kalv,0);
+                     + coalesce(new.n_ungtyr,0) + coalesce(new.n_stud,0) + coalesce(new.n_kalv,0);
 
   if tg_op = 'UPDATE' and not is_adm and old.status = 'GODKENDT' and new.status = 'GODKENDT'
      and (new.booking_date is distinct from old.booking_date
@@ -426,11 +428,12 @@ begin
           or new.slot_count is distinct from old.slot_count
           or new.carrier_id is distinct from old.carrier_id
           or new.farmer_id  is distinct from old.farmer_id
-          or new.n_ko   is distinct from old.n_ko
-          or new.n_kvie is distinct from old.n_kvie
-          or new.n_tyr  is distinct from old.n_tyr
-          or new.n_stud is distinct from old.n_stud
-          or new.n_kalv is distinct from old.n_kalv
+          or new.n_ko     is distinct from old.n_ko
+          or new.n_kvie   is distinct from old.n_kvie
+          or new.n_tyr    is distinct from old.n_tyr
+          or new.n_ungtyr is distinct from old.n_ungtyr
+          or new.n_stud   is distinct from old.n_stud
+          or new.n_kalv   is distinct from old.n_kalv
           or new.type   is distinct from old.type
           or new.note   is distinct from old.note)
   then

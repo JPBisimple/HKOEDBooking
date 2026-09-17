@@ -171,7 +171,7 @@ Enums:
 - `app_role`: `admin`, `carrier`
 - `booking_status`: `AFVENTER_GODKENDELSE`, `GODKENDT`, `AFVIST`, `ANNULLERET`
 - `booking_type`: `PREBOOKING`, `BOOKING`
-- `animal_category`: `KO`, `KVIE`, `TYR`, `STUD`, `KALV`
+- `animal_category`: `KO`, `KVIE`, `TYR`, `UNGTYR`, `STUD`, `KALV`
 
 `profiles` har `carrier_id` med fremmednøgle til `carriers`, og
 `chk_carrier_has_company` kræver, at en bruger med rollen `carrier` altid har
@@ -180,13 +180,19 @@ måde at pege på `farmers` — profiltabellen skal udvides.** Check-constraint'
 er formuleret, så en ny rolle ikke automatisk kræver `carrier_id`.
 
 `bookings`: `booking_date`, `start_time`, `slot_count`, `animal_count`,
-`n_ko`, `n_kvie`, `n_tyr`, `n_stud`, `n_kalv`,
+`n_ko`, `n_kvie`, `n_tyr`, `n_ungtyr`, `n_stud`, `n_kalv`,
 `type`, `status`, `carrier_id`, `farmer_id`, `created_by`, `rejection_reason`,
 `note`, `capacity_override`, `external_ref`, `end_time`, `period`,
 `driver_name`, `truck_plate`, `trailer_plate`, `arrived_at`, `picked_up_at`
 
+Kategorierne vises i UI'et som "Ko/ungko", "Kvie", "Kalv 8-12",
+"Ungtyr 12-24", "Tyr 24+" og "Stud" — aldersgrænserne er en del af
+labelen, ikke et separat felt. `UNGTYR` (12-24 mdr.) er adskilt fra
+`TYR` (24+ mdr.); tilføjet efter `TYR` i enum'en i migration
+`20260917150000_add_ungtyr_category.sql`.
+
 Dyr angives ikke som ét samlet tal, men pr. kategori (`n_ko`, `n_kvie`,
-`n_tyr`, `n_stud`, `n_kalv`). `animal_count` er ikke klientstyret —
+`n_tyr`, `n_ungtyr`, `n_stud`, `n_kalv`). `animal_count` er ikke klientstyret —
 `validate_booking` sætter den til summen af kategorikolonnerne ved hver
 INSERT/UPDATE, ligesom `end_time`/`period`. Den er bevidst *ikke* en
 `GENERATED`-kolonne: en `BEFORE`-trigger kan ikke læse værdien af en
