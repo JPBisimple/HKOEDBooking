@@ -28,6 +28,8 @@
     --cream:#E3DAC2;        /* lys guldtone til afventende - afledt */
     --greige:#A69E8E;       /* fremmede bookinger */
     --on-light:#1A3C34;     /* tekst på lyse flader */
+    --appr:#7FCBAE;         /* stærkere grøn til egne godkendte bookede slots */
+    --pend:#EFC768;         /* stærkere guld til egne afventende bookede slots */
   }
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
@@ -66,17 +68,18 @@
   .cell.disabled{background:rgba(0,0,0,.22);border-color:transparent;cursor:not-allowed;color:transparent}
   .cell.busy{background:var(--greige);border-color:#8B8373;border-left:5px solid #6E6759;
              color:var(--on-light);cursor:default}
-  .cell.own{color:var(--on-light);cursor:default;font-weight:500}
-  .cell.own.GODKENDT{background:var(--warm);border-color:var(--green);border-left:5px solid var(--green)}
-  .cell.own.AFVENTER_GODKENDELSE{background:var(--cream);border-color:var(--gold);border-left:5px solid var(--gold)}
+  .cell.own{color:var(--on-light);cursor:pointer;font-weight:500}
+  .cell.own:hover{filter:brightness(.93)}
+  .cell.own.GODKENDT{background:var(--appr);border-color:var(--green);border-left:5px solid var(--green)}
+  .cell.own.AFVENTER_GODKENDELSE{background:var(--pend);border-color:var(--gold);border-left:5px solid var(--gold)}
   .cell.own.pre{background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 5px,transparent 5px 10px)}
   .cell.cont{border-top-style:dashed;border-top-color:rgba(26,60,52,.35)}
   .more{color:rgba(26,60,52,.78);font-style:italic;font-size:10px;font-weight:400}
   .cell.sel{background:rgba(133,117,78,.45);border-color:var(--gold-lt);box-shadow:inset 0 0 0 1px var(--gold-lt);color:#fff}
   .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;border:1px solid;
        color:var(--on-light);font-weight:600}
-  .t-GODKENDT{background:var(--warm);border-color:var(--green)}
-  .t-AFVENTER_GODKENDELSE{background:var(--cream);border-color:var(--gold)}
+  .t-GODKENDT{background:var(--appr);border-color:var(--green)}
+  .t-AFVENTER_GODKENDELSE{background:var(--pend);border-color:var(--gold)}
   .t-AFVIST,.t-ANNULLERET{background:rgba(214,209,202,.08);border-color:var(--line);color:var(--muted)}
   .t-warn{background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
@@ -361,7 +364,7 @@ async function renderCal(){
         const span = `${hhmm(b.start_time)}–${hhmm(b.end_time)}`;
         const title = n>1 ? `${span} · ${n} intervaller` : span;
         if(b.is_own){
-          grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}" title="${title}">
+          grid += `<div class="cell own ${b.status} ${b.type==='PREBOOKING'?'pre':''} ${first?'':'cont'}" data-b="${b.id}" title="${title} — klik for at redigere">
             ${first
               ? `<b>${esc(b.carrier_label)}</b>${n>1?` <span style="font-weight:400">(${n} intervaller, ${span})</span>`:''}<br>${b.animal_count} dyr${b.status==='AFVENTER_GODKENDELSE'?' (afventer slagteri)':''}`
               : `<span class="more">↳ ${esc(b.carrier_label)}, ${pos} af ${n}</span>`}</div>`;
@@ -383,21 +386,34 @@ async function renderCal(){
       <div style="flex:0"><button class="btn sec" id="wk-prev">← Forrige</button></div>
       <div style="flex:0"><button class="btn sec" id="wk-today">I dag</button></div>
       <div style="flex:0"><button class="btn sec" id="wk-next">Næste →</button></div>
-      <div style="flex:0;color:var(--muted);align-self:center">Uge ${isoWeek(S.weekStart)} · ${dk(from)} – ${dk(to)}</div>
+      <div style="flex:0;color:var(--muted);align-self:center;white-space:nowrap">Uge ${isoWeek(S.weekStart)} · ${dk(from)} – ${dk(to)}</div>
     </div>${grid}
     <div class="legend">
-      <span><i style="background:var(--warm);border-color:var(--green)"></i>Egen godkendt booking</span>
-      <span><i style="background:var(--cream);border-color:var(--gold)"></i>Egen afventende</span>
-      <span><i style="background:var(--cream);border-color:var(--gold);background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 4px,transparent 4px 8px)"></i>Prebooking (skraveret)</span>
+      <span><i style="background:var(--appr);border-color:var(--green)"></i>Egen godkendt booking</span>
+      <span><i style="background:var(--pend);border-color:var(--gold)"></i>Egen afventende</span>
+      <span><i style="background:var(--pend);border-color:var(--gold);background-image:repeating-linear-gradient(45deg,rgba(26,60,52,.16) 0 4px,transparent 4px 8px)"></i>Prebooking (skraveret)</span>
       <span><i style="background:var(--greige)"></i>Optaget af anden transportør</span>
       <span><i style="background:rgba(0,0,0,.22)"></i>Lukket / passeret</span>
-      <span>Klik på et ledigt interval, eller træk hen over flere i samme dag for at booke dem samlet.</span>
+      <span>Klik på et ledigt interval, eller træk hen over flere i samme dag for at booke dem samlet. Klik på en egen booking for at redigere den.</span>
     </div>
   </div>`;
   $('wk-prev').onclick = () => { S.weekStart=addDays(S.weekStart,-7); renderCal(); };
   $('wk-next').onclick = () => { S.weekStart=addDays(S.weekStart,7);  renderCal(); };
   $('wk-today').onclick = () => { S.weekStart=monday(new Date());     renderCal(); };
   enableRangeSelect(el, slots);
+  wireCalEdit(el);
+}
+
+// Klik på en egen booking i kalenderen åbner den til redigering. v_calendar
+// er en maskeret visning uden felter som dyretal pr. kategori og
+// landmand — hent den fulde række fra bookings (RLS giver kun adgang til
+// egne rækker, admin ser alle) inden formularen åbnes.
+function wireCalEdit(el){
+  el.querySelectorAll('.cell.own[data-b]').forEach(c => c.addEventListener('click', async () => {
+    const { data, error } = await sb.from('bookings').select('*').eq('id', c.dataset.b).single();
+    if(error) return alert(msg(error));
+    bookingModal(data.booking_date, hhmm(data.start_time), data);
+  }));
 }
 
 // Klik og træk hen over flere slots i samme dag. Markeringen stopper ved
