@@ -627,7 +627,9 @@ async function bookingModal(ds, t, existing, preset){
 // ---------- BOOKINGLISTE ----------
 // Bookinger kan markeres til afhentning (checkboks) og samles i én
 // køreseddel via koreseddelModal — uafhængigt af Registrer dyr-skærmen.
-const pickable = r => ['AFVENTER_GODKENDELSE','GODKENDT'].includes(r.status);
+// Kun godkendte bookinger kan markeres — en booking der endnu afventer
+// slagteriets godkendelse skal ikke kunne indgå i en afhentningsplan.
+const pickable = r => r.status === 'GODKENDT';
 
 async function renderList(){
   const el = $('v-list');

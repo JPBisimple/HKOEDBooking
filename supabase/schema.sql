@@ -569,6 +569,12 @@ begin
     raise exception 'Alle valgte bookinger skal have samme dato for at kunne grupperes til én afhentning.';
   end if;
 
+  if exists (
+    select 1 from public.bookings where id = any(p_booking_ids) and status <> 'GODKENDT'
+  ) then
+    raise exception 'Kun godkendte bookinger kan markeres til afhentning.';
+  end if;
+
   select pickup_ref into v_existing from public.bookings where id = p_booking_ids[1];
   if v_existing is not null and not exists (
     select 1 from public.bookings where id = any(p_booking_ids) and pickup_ref is distinct from v_existing
